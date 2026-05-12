@@ -39,8 +39,10 @@ for file in files:
 
     ax.set_xticks(x + width * n_periods / 2)
     ax.set_xticklabels(df.index, rotation=45, ha="right")
-    ax.set_title("Number of activity cells by period and classification")
+    ax.set_title(f"Number of {file.stem}")
     ax.set_xlabel("Day")
     ax.set_ylabel("Number of person")
     plt.tight_layout()
+
+    plt.savefig(MAIN_DIR / f"results/plots/distribution_{file.stem}.png")
     plt.show()
