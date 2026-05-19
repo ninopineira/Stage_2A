@@ -59,9 +59,9 @@ def classify(cells : list[str], stamps : list[int]):
             if start <= stamp < end: # if the timestamp is within the time slot, we set the corresponding bit to 1, which means that the user is considered present during this time slot
                 presence[i] = 1
     
-    presence_code = 0
+    presence_code = ''
     for i, bit in enumerate(presence):
-        presence_code += bit * 2 **i # we convert the binary code to a decimal number, which will be easier to manipulate and store in the dataframe
+        presence_code += str(bit) # we convert the binary code to a string, which will be easier to manipulate and store in the dataframe
 
     return presence_code
 

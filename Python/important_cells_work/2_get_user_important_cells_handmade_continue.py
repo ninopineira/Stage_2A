@@ -141,7 +141,7 @@ def get_base_stations_set(cells : set[str], merge_func : Callable[[str], str] | 
     return {merge_func(c) for c in cells}
 
 def get_user_cells(cells_morning, cells_activity, cells_evening, stamps_activity,
-                   useful_merge_count_home, useful_merge_count_300, 
+                   useful_merge_count_home, useful_merge_count_300,
                    activity_stay_time : int | None = 18000, merge_func : Callable[[str], str] | None = get_cell_code):
     """
     Returns the home and activity cell of the user or None if these cells don't exist for the user ans the number of activity cells (cells in which the user stayed more than 300 minutes in continued time) and the reason why the cell is None if it is the case.
@@ -159,7 +159,7 @@ def get_user_cells(cells_morning, cells_activity, cells_evening, stamps_activity
     Home_and_Activity_are_same = False
     merged_Home_and_Activity_are_same = False
 
-    nb_activity_cells = 0
+    nb_activity_cells = []
     
     n_morning = len(cells_morning)
     n_activity = len(cells_activity)
@@ -183,7 +183,7 @@ def get_user_cells(cells_morning, cells_activity, cells_evening, stamps_activity
     if Cell_Home == "" and Cell_Activity == "":
         return Cell_Home, Cell_Activity, Home_and_Activity_are_same, \
             merged_Cell_Home, merged_Cell_Activity, merged_Home_and_Activity_are_same, \
-            reason_None, useful_merge_count_home, useful_merge_count_300, nb_activity_cells
+            reason_None, useful_merge_count_home, useful_merge_count_300, len(nb_activity_cells), len([merge_func(c) for c in nb_activity_cells])
     
     # ======= #
     # Phase 1 # First search of cells
@@ -213,34 +213,33 @@ def get_user_cells(cells_morning, cells_activity, cells_evening, stamps_activity
             if current_cell != old_cell:
                 if current_timestamp-old_stamp < 4*3600: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
                     time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
-                    if time_stayed_in_cells[old_cell] >= activity_stay_time: # if the user stayed enough time in the cell, we consider it as a candidate for Cell_Activity
-                        old_cell = current_cell
-                        old_stamp = current_timestamp
-
-                    else: # if the user didn't stay enough time in the cell, we just update the time stayed in this cell and we don't consider it as a candidate for Cell_Activity
-                        time_stayed_in_cells[old_cell] = 0
-                        old_cell = current_cell
-                        old_stamp = current_timestamp
+                    old_cell = current_cell
+                    old_stamp = current_timestamp
                     
-                else: # if the user is still in the same cell, we just update the time stayed in this cell
-                    time_stayed_in_cells[old_cell] += 4*3600 # we consider that the user stayed 4 hours in the cell before disconnecting and reconnecting
-                    if time_stayed_in_cells[old_cell] >= activity_stay_time: # if the user stayed enough time in the cell, we consider it as a candidate for Cell_Activity
-                        old_cell = current_cell
-                        old_stamp = current_timestamp
-
-                    else: # if the user didn't stay enough time in the cell, we just update the time stayed in this cell and we don't consider it as a candidate for Cell_Activity
-                        time_stayed_in_cells[old_cell] = 0
-                        old_cell = current_cell
-                        old_stamp = current_timestamp
+                else:
+                    time_stayed_in_cells[old_cell] = 0
+                    old_cell = current_cell
+                    old_stamp = current_timestamp
+                    
+                if time_stayed_in_cells[old_cell] < activity_stay_time:
+                    time_stayed_in_cells[old_cell] = 0
             
             else: # if the user is still in the same cell, we just update the time stayed in this cell
-                time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
-                old_cell = current_cell
-                old_stamp = current_timestamp
+                if current_timestamp-old_stamp < 4*3600: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
+                    time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
+                    old_cell = current_cell
+                    old_stamp = current_timestamp
+                    
+                else:
+                    if time_stayed_in_cells[old_cell] < activity_stay_time:
+                        time_stayed_in_cells[old_cell] = 0
+                    old_cell = current_cell
+                    old_stamp = current_timestamp
         
         for cell in time_stayed_in_cells:
-            if time_stayed_in_cells[cell] >= activity_stay_time:
-                nb_activity_cells += 1
+            if time_stayed_in_cells[cell] >= activity_stay_time and cell not in nb_activity_cells:
+                nb_activity_cells.append(cell)
+            
 
         candidates_activity = {cellid for cellid in time_stayed_in_cells.keys() if time_stayed_in_cells[cellid] >= activity_stay_time}
 
@@ -263,7 +262,7 @@ def get_user_cells(cells_morning, cells_activity, cells_evening, stamps_activity
                 Home_and_Activity_are_same = True
         return Cell_Home, Cell_Activity, Home_and_Activity_are_same, \
                 merged_Cell_Home, merged_Cell_Activity, merged_Home_and_Activity_are_same, \
-                reason_None, useful_merge_count_home, useful_merge_count_300, nb_activity_cells
+                reason_None, useful_merge_count_home, useful_merge_count_300, len(nb_activity_cells), len([merge_func(c) for c in nb_activity_cells])
 
 
     # ======= #
@@ -290,6 +289,7 @@ def get_user_cells(cells_morning, cells_activity, cells_evening, stamps_activity
     if Cell_Activity is None or Cell_Activity != '':
         cells_activity = get_base_stations_list(cells_activity, merge_func=merge_func)
         
+        
         time_stayed_in_cells = Counter()
         old_cell = cells_activity[0]
         old_stamp = stamps_activity[0]
@@ -297,36 +297,33 @@ def get_user_cells(cells_morning, cells_activity, cells_evening, stamps_activity
             if current_cell != old_cell:
                 if current_timestamp-old_stamp < 4*3600: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
                     time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
-                    if time_stayed_in_cells[old_cell] >= activity_stay_time: # if the user stayed enough time in the cell, we consider it as a candidate for Cell_Activity
-                        old_cell = current_cell
-                        old_stamp = current_timestamp
-
-                    else: # if the user didn't stay enough time in the cell, we just update the time stayed in this cell and we don't consider it as a candidate for Cell_Activity
-                        time_stayed_in_cells[old_cell] = 0
-                        old_cell = current_cell
-                        old_stamp = current_timestamp
+                    old_cell = current_cell
+                    old_stamp = current_timestamp
                     
-                else: # if the user is still in the same cell, we just update the time stayed in this cell
-                    time_stayed_in_cells[old_cell] += 4*3600 # we consider that the user stayed 4 hours in the cell before disconnecting and reconnecting
-                    if time_stayed_in_cells[old_cell] >= activity_stay_time: # if the user stayed enough time in the cell, we consider it as a candidate for Cell_Activity
-                        old_cell = current_cell
-                        old_stamp = current_timestamp
-
-                    else: # if the user didn't stay enough time in the cell, we just update the time stayed in this cell and we don't consider it as a candidate for Cell_Activity
-                        time_stayed_in_cells[old_cell] = 0
-                        old_cell = current_cell
-                        old_stamp = current_timestamp
+                else:
+                    time_stayed_in_cells[old_cell] = 0
+                    old_cell = current_cell
+                    old_stamp = current_timestamp
+                    
+                if time_stayed_in_cells[old_cell] < activity_stay_time:
+                    time_stayed_in_cells[old_cell] = 0
             
             else: # if the user is still in the same cell, we just update the time stayed in this cell
-                time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
-                old_cell = current_cell
-                old_stamp = current_timestamp     
+                if current_timestamp-old_stamp < 4*3600: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
+                    time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
+                    old_cell = current_cell
+                    old_stamp = current_timestamp
+                    
+                else:
+                    if time_stayed_in_cells[old_cell] < activity_stay_time:
+                        time_stayed_in_cells[old_cell] = 0
+                    old_cell = current_cell
+                    old_stamp = current_timestamp
 
-        for cell in time_stayed_in_cells:
-            if time_stayed_in_cells[cell] >= activity_stay_time and nb_activity_cells == 0:
-                nb_activity_cells += 1
+        for i,cell in enumerate(time_stayed_in_cells):
+            if time_stayed_in_cells[cell] >= activity_stay_time and cell not in nb_activity_cells_merge:
+                nb_activity_cells_merge.append(cell)
 
-        
         candidates_activity = {cellid for cellid in time_stayed_in_cells.keys() if time_stayed_in_cells[cellid] >= activity_stay_time}
 
         for cell in cells_activity:
@@ -338,14 +335,14 @@ def get_user_cells(cells_morning, cells_activity, cells_evening, stamps_activity
                 break
                 
         if merged_Cell_Activity is None:
-            reason_None.append("Not_stayed_enough_in_cells")        
+            reason_None.append("Not_stayed_enough_in_cells")  
 
     # ====== #
     # Exit 3 #
     # ====== #
     return Cell_Home, Cell_Activity, Home_and_Activity_are_same, \
             merged_Cell_Home, merged_Cell_Activity, merged_Home_and_Activity_are_same, \
-            reason_None, useful_merge_count_home, useful_merge_count_300 , nb_activity_cells
+            reason_None, useful_merge_count_home, useful_merge_count_300, len(nb_activity_cells) ,len(nb_activity_cells_merge)
     
 def process_user_activity(cells : list[str], stamps : list[int], 
                           morning : int | None = 15000, evening : int | None = 71400, 
@@ -375,12 +372,12 @@ def process_user_activity(cells : list[str], stamps : list[int],
         return user_presence_classification, \
             None, None, False, \
             None, None, False, \
-            reason_None, useful_merge_count_home, useful_merge_count_300, 0
+            reason_None, useful_merge_count_home, useful_merge_count_300, 0, 0
     
     # Get the actual data we are looking for : the important cells of the user.
     Cell_Home, Cell_Activity, Home_and_Activity_are_same, \
     merged_Cell_Home, merged_Cell_Activity, merged_Home_and_Activity_are_same, \
-    reason_None, useful_merge_count_home, useful_merge_count_300, nb_activity_cells = \
+    reason_None, useful_merge_count_home, useful_merge_count_300, nb_activity_cells, nb_activity_cells_merge = \
         get_user_cells(cells_morning, cells_activity, cells_evening, stamps_activity,
                     useful_merge_count_home, useful_merge_count_300, 
                     activity_stay_time=18000, merge_func = merge_func)
@@ -388,7 +385,7 @@ def process_user_activity(cells : list[str], stamps : list[int],
     return user_presence_classification, \
             Cell_Home, Cell_Activity, Home_and_Activity_are_same, \
             merged_Cell_Home, merged_Cell_Activity, merged_Home_and_Activity_are_same, \
-            reason_None, useful_merge_count_home, useful_merge_count_300, nb_activity_cells
+            reason_None, useful_merge_count_home, useful_merge_count_300, nb_activity_cells, nb_activity_cells_merge
 
 # =========== #
 # MAIN SCRIPT # 2 types of merging are tested
@@ -415,7 +412,8 @@ for merge_name,merge_func in MERGE.items():
                     "reason_None" : [],
                     "period" : [],
                     "working_period" : [],
-                    "nb_activity_cells" : []
+                    "nb_activity_cells" : [],
+                    "nb_activity_cells_merge" : []
                     }
 
     for file in tqdm.tqdm(files):
@@ -434,7 +432,7 @@ for merge_name,merge_func in MERGE.items():
                     user_presence_classification, \
                         Cell_Home, Cell_Activity, Home_and_Activity_are_same, \
                         merged_Cell_Home, merged_Cell_Activity, merged_Home_and_Activity_are_same, \
-                        reason_None, useful_merge_count_home, useful_merge_count_300, nb_activity_cells = \
+                        reason_None, useful_merge_count_home, useful_merge_count_300, nb_activity_cells, nb_activity_cells_merge = \
                         process_user_activity(cells = user_cells, stamps = user_stamps, morning = morning, evening = evening, 
                             activity_start = activity_start, activity_end = activity_end,
                             useful_merge_count_home=useful_merge_count_home, useful_merge_count_300=useful_merge_count_300,
@@ -457,9 +455,9 @@ for merge_name,merge_func in MERGE.items():
                     result_days["period"].append(label) 
                     result_days["working_period"].append( (activity_start, activity_end) )
                     result_days["nb_activity_cells"].append(nb_activity_cells)
-
+                    result_days["nb_activity_cells_merge"].append(nb_activity_cells_merge)
     print(f"Le merging pour Home a été utile pour {useful_merge_count_home} cas")
     print(f"Le merging pour Activity a été utile pour {useful_merge_count_300} cas")
 
     df = pd.DataFrame(result_days)
-    df.to_csv(OUTPUT, sep=";", header=True, index=False, index_label=False)
+    df.to_csv(OUTPUT, sep=";", header=True, index=False, index_label=False) 
