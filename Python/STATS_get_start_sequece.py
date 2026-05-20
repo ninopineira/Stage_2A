@@ -1,6 +1,8 @@
+from collections import Counter
 import csv
 import json
 from pathlib import Path
+from typing import Counter
 import tqdm
 from utils import get_day
 import re
@@ -33,7 +35,43 @@ MERGE = {
     "2g3g" : get_cell_code2
 }
 
-def entree_exit(line, activity_time = (5*3600, 19*3600), merge_function = None):
+def most_cell_present(cells: list[str], stamps: list[int], period: tuple[int, int]) -> str:
+    """Determine the most present cell in a given period.
+    
+    cells : a list of cell ids where the user was present during the day
+    stamp : a list of timestamps corresponding to the times when the user was connected at the base
+    station period : a tuple of two integers representing the start and end time of the period (in seconds since the beginning of the day)
+
+    return : the cell id of the most present cell during the period
+    """
+    time_stayed_in_cells = Counter()
+    old_cell = cells[0]
+    old_stamp = stamps[0]
+    for current_cell,current_timestamp in zip(cells[1:], stamps[1:]):
+        if current_cell != old_cell:
+            if current_timestamp-old_stamp < 4*3600: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
+                time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
+                old_cell = current_cell
+                old_stamp = current_timestamp
+                    
+            else:
+                old_cell = current_cell
+                old_stamp = current_timestamp
+            
+        else: # if the user is still in the same cell, we just update the time stayed in this cell
+            if current_timestamp-old_stamp < 4*3600: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
+                time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
+                old_cell = current_cell
+                old_stamp = current_timestamp
+                    
+            else:
+                old_cell = current_cell
+                old_stamp = current_timestamp
+    
+    return time_stayed_in_cells.most_common(1)[0][0] if time_stayed_in_cells else None
+
+
+def entree_exit(line, morning, evening, activity_time = (5*3600, 19*3600), merge_function = None):
 
     if merge_function is None:
         user_cells = [c for c in line[8::2]]
@@ -42,6 +80,9 @@ def entree_exit(line, activity_time = (5*3600, 19*3600), merge_function = None):
     else:
         user_cells = [MERGE[merge_function](c) for c in line[8::2]]
         user_stamps = [int(ts) for ts in line[9::2]]
+
+    Home_morning = most_cell_present(user_cells, user_stamps, (0, morning))
+    Home_evening = most_cell_present(user_cells, user_stamps, (evening, 24*3600))
 
     if len(user_cells) <= 1 or len(user_stamps) <= 1:
         return None, None
@@ -55,10 +96,12 @@ def entree_exit(line, activity_time = (5*3600, 19*3600), merge_function = None):
 
     for cell,stamp in zip(user_cells, user_stamps):
         if previous_stamp < start_time and stamp >= start_time:
-            entrances.append(cell)
+            if cell != Home_morning:
+                entrances.append(cell)
         
         if previous_stamp <= end_time and stamp > end_time:
-            exits.append(previous_cell)
+            if previous_cell != Home_evening:
+                exits.append(previous_cell)
         
         if stamp >= start_time and stamp <= end_time:
             if stamp/3600 - previous_stamp/3600 > 4: # if the time between two connections is more than 4 hours, we consider that the user has disconnected and reconnected
@@ -112,18 +155,18 @@ for file in tqdm.tqdm(files):
     with open(file, mode='r', encoding='utf-8', newline='') as f:
         reader = csv.reader(f, delimiter=';')
         for line in reader:
-            entrance, exits = entree_exit(line)
+            entrance, exits = entree_exit(line,4*3600,2*3600, merge_function=None)
             if entrance is None or exits is None:
                 break
 
             list_entrance += entrance
             list_exit += exits
 
-            entrance_simple_merged, exit_simple_merged = entree_exit(line, merge_function="simple")
+            entrance_simple_merged, exit_simple_merged = entree_exit(line,4*3600,2*3600, merge_function="simple")
             list_entrance_simple_merged += entrance_simple_merged
             list_exit_simple_merged += exit_simple_merged
 
-            entrance_2g3g_merged, exit_2g3g_merged = entree_exit(line, merge_function="2g3g")
+            entrance_2g3g_merged, exit_2g3g_merged = entree_exit(line,4*3600,2*3600, merge_function="2g3g")
             list_entrance_2g3g_merged += entrance_2g3g_merged
             list_exit_2g3g_merged += exit_2g3g_merged
 
