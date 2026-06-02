@@ -53,3 +53,30 @@ if file.exists():
     
 else:
     print("Input file not found.")
+
+
+# Second classification with 5 clusters
+
+file_bis = INPUT_DIR / "user_generalised_classification_by_user.csv"
+
+if file_bis.exists():
+    df_bis = pd.read_csv(file_bis, sep=";")
+    cluster_counts = df_bis.groupby(["day", "user_presence_cluster_name"]).size().unstack(fill_value=0)
+
+    cluster_counts.plot(kind="bar", stacked=True, figsize=(10,6), color=colors)
+    plt.title("Classification of users by presence during the day (5 clusters)")
+
+    ax = plt.gca()
+    labels = [str(idx) for idx in cluster_counts.index]
+    ax.set_xticklabels(labels, rotation=30, ha="right")
+    for label in ax.get_xticklabels():
+        day = label.get_text().strip().split("-")[-1].split()[-1]
+        if day in weekends:
+            label.set_color("red")
+
+    plt.xlabel("Day")
+    plt.ylabel("Number of Users")
+    plt.legend(title="Classes present", bbox_to_anchor=(1.0, 1), loc='upper left')
+    plt.tight_layout()
+    
+    plt.savefig(MAIN_DIR / f"results/plots/classification_by_presence_5_clusters.png")

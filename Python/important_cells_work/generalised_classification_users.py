@@ -27,7 +27,15 @@ files = [file for file in INPUT_DIR.glob("*.csv")]
 result_day = {"user_id" : [],
              "day" : [],
              
-             "user_presence_classification" : [] # cette liste comporteras un code binaire codé sur 6 bits, chaque bit corresponds à une tranche de 4h (0h-4h, 4h-8h, 8h-12h, 12h-16h, 16h-20h, 20h-24h), si le bit est à 1 alors l'utilisateur a été considéré comme présent dans au moins une station de base pendant cette tranche horaire, sinon il a été considéré comme absent
+             "user_presence_classification" : []
+}
+
+result_day_bis = {"user_id" : [],
+             "day" : [],
+             
+             "user_presence_classification" : [], # cette liste comporteras un code binaire codé sur 6 bits, chaque bit corresponds à une tranche de 4h (0h-4h, 4h-8h, 8h-12h, 12h-16h, 16h-20h, 20h-24h), si le bit est à 1 alors l'utilisateur a été considéré comme présent dans au moins une station de base pendant cette tranche horaire, sinon il a été considéré comme absent
+             "user_presence_cluster" : [], # cette liste comporteras un nombre entre 0 et 4, correspondant au cluster auquel appartient l'utilisateur, qui correspondra à son profil d'utilisation
+             "user_presence_cluster_name" : [] # cette liste comporteras le nom du cluster auquel
              }
 
 window = {"00h-04h" : (0,14400),
@@ -42,7 +50,7 @@ window = {"00h-04h" : (0,14400),
 # CLASSIFICATION FUNCTIONS #
 # ======================== #
 
-def classify(cells : list[str], stamps : list[int]):
+def classify(stamps : list[int]):
     """
     This function will create the binary code
 
@@ -54,7 +62,7 @@ def classify(cells : list[str], stamps : list[int]):
 
     presence = [0,0,0,0,0,0] # we initialize the presence list with 6 bits set to 0, which means that the user is considered absent during all time slots
 
-    for cell, stamp in zip(cells, stamps):
+    for stamp in stamps:
         for i, (start, end) in enumerate(window.values()):
             if start <= stamp < end: # if the timestamp is within the time slot, we set the corresponding bit to 1, which means that the user is considered present during this time slot
                 presence[i] = 1
@@ -64,6 +72,74 @@ def classify(cells : list[str], stamps : list[int]):
         presence_code += str(bit) # we convert the binary code to a string, which will be easier to manipulate and store in the dataframe
 
     return presence_code
+
+def a_gap(user_stamps : list[int]):
+    """
+    This function will determine if the user has a gap during the day, which means that he is present at base stations during the day, but with a gap during the day (between 4am and 8pm)
+
+    user_stamps : a list of timestamps corresponding to the times when the user was connected at the base stations
+
+    return : True if the user has a gap during the day, False otherwise
+    """
+    previous_stamp = user_stamps[0]
+
+    for stamp in user_stamps[1:]:
+        if 14400 <= stamp < 57600 and 14400 <= previous_stamp < 57600 and stamp - previous_stamp > 4*3600 + 60: # if the timestamp is between 4am and 8pm, we consider that the user has a gap during the day
+            return True
+        previous_stamp = stamp
+    
+    return False
+
+
+
+def classify_profil(user_stamps : list[int]):
+    """
+    This function will classify the user based on his presence at base stations during the day, using the 5 clusters defined above
+
+    user_stamps : a list of timestamps corresponding to the times when the user was connected at the base stations
+
+    return : a number between 0 and 4, corresponding to the cluster to which the user belongs, which will correspond to the user profile
+    return : None if the user profil not defined
+    """
+    if len(user_stamps) == 0:
+        return None # if the user has no presence at base stations during the day, we consider that he belongs to cluster 4 (users who are present at base stations during the day, but not during the morning(before 4am) and the evening (after 8pm))
+    
+    has_gap = a_gap(user_stamps)
+
+    morning_presence =  user_stamps[0] < 14400 
+    evening_presence = user_stamps[-1] >= 72000
+
+    if morning_presence and evening_presence and not has_gap:
+        return 0 # users who are present at base stations during all time periods
+    
+    elif morning_presence and evening_presence and has_gap:
+        return 1 # users who are present at base stations during the day, but with a gap during the day (between 4am and 8pm)
+    
+    elif morning_presence and not evening_presence:
+        return 2 # users who are present at the morning (before 4am), but they leave the area during the day
+    
+    elif not morning_presence and evening_presence:
+        return 3 # users who are present at the evening (after 8pm), and they arrive in the area during the day
+    
+    elif not morning_presence and not evening_presence:
+        return 4 # users who are present at base stations during the day, but not during the morning(before 4am) and the evening (after 8pm)
+    
+    else:
+        return None # if the user profil not defined
+    
+def name_cluster(cluster_code : int):
+    if not 0 <= cluster_code <= 4:
+        return "Unknown"
+    
+    cluster_names = {
+        0 : "Home and work users",
+        1 : "Home in the area but not at work users",
+        2 : "Morning users",
+        3 : "Evening users",
+        4 : "Passing through the area"
+    }
+
+    return cluster_names.get(cluster_code, "Unknown")
 
 # ========================= #
 # CLASSIFICATION PROCESSING #
@@ -78,19 +154,31 @@ for file in tqdm.tqdm(files):
             user_cells = [c for c in line[8::2] if c]
             user_stamps = [int(ts) for ts in line[9::2] if ts]
 
-            presence_code = classify(user_cells, user_stamps)
+            presence_code = classify(user_stamps)
+
+            presence_cluster = classify_profil(user_stamps)
+            presence_cluster_name = name_cluster(presence_cluster)
 
             result_day["user_id"].append(user_id)
             result_day["day"].append(day)
             result_day["user_presence_classification"].append(presence_code)
 
+            result_day_bis["user_id"].append(user_id)
+            result_day_bis["day"].append(day)
+            result_day_bis["user_presence_classification"].append(presence_code)
+            result_day_bis["user_presence_cluster"].append(presence_cluster)
+            result_day_bis["user_presence_cluster_name"].append(presence_cluster_name)
+
             
 
 df = pd.DataFrame(result_day)
+df_bis = pd.DataFrame(result_day_bis)
+
 
 df = df.groupby(by=["day","user_presence_classification"]).size().unstack(fill_value=0)
 
 df.to_csv(OUTPUT_DIR / "user_generalised_classification.csv", sep=";", header=True, index=True, index_label=True)
+df_bis.to_csv(OUTPUT_DIR / "user_generalised_classification_by_user.csv", sep=";", header=True, index=False)
 
 
 

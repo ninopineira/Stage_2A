@@ -7,6 +7,7 @@ import tqdm
 from utils import get_day
 import re
 import pandas as pd
+from important_cells_work.generalised_classification_users import classify_profil
 
 MAIN_DIR = Path(__file__).parent.parent
 INPUT_DIR = MAIN_DIR /  f"Database/no_duplicate"
@@ -83,7 +84,7 @@ def occurences(station, list_stations):
 # ============================ #
 # TODO
 
-def build_day_rows(day, list_entrance, list_exit):
+def build_day_rows(day, list_entrance, list_exit, cluster_type):
     all_stations = set(list_entrance) | set(list_exit)
     rows = []
     for station in all_stations:
@@ -92,6 +93,7 @@ def build_day_rows(day, list_entrance, list_exit):
             "station": station,
             "entrance_count": occurences(station, list_entrance),
             "exit_count": occurences(station, list_exit),
+            "cluster_type": cluster_type  # Placeholder for user profile type
         })
     return rows
 
@@ -102,37 +104,40 @@ rows_2g3g = []
 
 for file in tqdm.tqdm(files):
 
-    list_entrance = []
-    list_exit = []
-    list_entrance_simple_merged = []
-    list_exit_simple_merged = []
-    list_entrance_2g3g_merged = []
-    list_exit_2g3g_merged = []
+    list_entrance = {i:[] for i in range(5)}
+    list_exit = {i:[] for i in range(5)}
+    list_entrance_simple_merged = {i:[] for i in range(5)}
+    list_exit_simple_merged = {i:[] for i in range(5)}
+    list_entrance_2g3g_merged = {i:[] for i in range(5)}
+    list_exit_2g3g_merged = {i:[] for i in range(5)}
 
     day = get_day(file)
     with open(file, mode='r', encoding='utf-8', newline='') as f:
         reader = csv.reader(f, delimiter=';')
         for line in reader:
+            user_stamps = [int(x) for x in line[9::2]]
+            i = classify_profil(user_stamps)
+
             entrance, exits = entree_exit(line,4*3600,20*3600, merge_function=None)
             if entrance is None or exits is None:
                 break
 
-            list_entrance += entrance
-            list_exit += exits
+            list_entrance[i] += entrance
+            list_exit[i] += exits
 
             entrance_simple_merged, exit_simple_merged = entree_exit(line,4*3600,20*3600, merge_function="simple")
-            list_entrance_simple_merged += entrance_simple_merged
-            list_exit_simple_merged += exit_simple_merged
+            list_entrance_simple_merged[i] += entrance_simple_merged
+            list_exit_simple_merged[i] += exit_simple_merged
 
             entrance_2g3g_merged, exit_2g3g_merged = entree_exit(line,4*3600,20*3600, merge_function="2g3g")
-            list_entrance_2g3g_merged += entrance_2g3g_merged
-            list_exit_2g3g_merged += exit_2g3g_merged
+            list_entrance_2g3g_merged[i] += entrance_2g3g_merged
+            list_exit_2g3g_merged[i] += exit_2g3g_merged
+    for i in range(5):
+        rows_no_merge += build_day_rows(day, list_entrance[i], list_exit[i],i)
+        rows_simple += build_day_rows(day, list_entrance_simple_merged[i], list_exit_simple_merged[i],i)
+        rows_2g3g += build_day_rows(day, list_entrance_2g3g_merged[i], list_exit_2g3g_merged[i],i)
 
-    rows_no_merge += build_day_rows(day, list_entrance, list_exit)
-    rows_simple += build_day_rows(day, list_entrance_simple_merged, list_exit_simple_merged)
-    rows_2g3g += build_day_rows(day, list_entrance_2g3g_merged, list_exit_2g3g_merged)
 
-
-pd.DataFrame(rows_no_merge).sort_values(["day", "station"]).to_csv(INTERMEDIATE_PATH / "stats_entrance_exit_no_merge.csv", index=False, sep=";")
-pd.DataFrame(rows_simple).sort_values(["day", "station"]).to_csv(INTERMEDIATE_PATH / "stats_entrance_exit_simple_merge.csv", index=False, sep=";")
-pd.DataFrame(rows_2g3g).sort_values(["day", "station"]).to_csv(INTERMEDIATE_PATH / "stats_entrance_exit_2g3g_merge.csv", index=False, sep=";")
+pd.DataFrame(rows_no_merge).sort_values(["day", "station","cluster_type"]).to_csv(INTERMEDIATE_PATH / "stats_entrance_exit_no_merge.csv", index=False, sep=";")
+pd.DataFrame(rows_simple).sort_values(["day", "station","cluster_type"]).to_csv(INTERMEDIATE_PATH / "stats_entrance_exit_simple_merge.csv", index=False, sep=";")
+pd.DataFrame(rows_2g3g).sort_values(["day", "station","cluster_type"]).to_csv(INTERMEDIATE_PATH / "stats_entrance_exit_2g3g_merge.csv", index=False, sep=";")

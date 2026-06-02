@@ -10,6 +10,8 @@ import re
 
 MAIN_DIR = Path(__file__).parent.parent
 INPUT_DIR = MAIN_DIR /  f"Database/no_duplicate"
+INTERMEDIATE_PATH = MAIN_DIR / f"results/intermediate_result"
+INTERMEDIATE_PATH.mkdir(parents=True, exist_ok=True)
 
 files = [file for file in INPUT_DIR.glob("*.csv")]
 
@@ -41,6 +43,7 @@ def plot_presence_over_time(unser_stamps, id_user_id, day):
 
 # 2069871,2 un exemple d'utilisateur avec des trous de partout pour montrer comment se fait l'occupation des cellules au cours de la journée.
 # 992,0 un exemple d'utilisateur pour montrer le nombre de connexions par heure et par cellule.
+
 id_utilisateur,idice_folder = 856,0
 
 with open(files[idice_folder], mode='r', encoding='utf-8', newline='') as f:
@@ -51,12 +54,7 @@ with open(files[idice_folder], mode='r', encoding='utf-8', newline='') as f:
             break
 
 user_stamps = [int(ts) for ts in utilisateur[9::2]]
-plot_presence_over_time(user_stamps,id_user_id=id_utilisateur, day=get_day(files[idice_folder]))
 
-print("Enstrances and exits for user", id_utilisateur)
-entrances, exits = entree_exit(utilisateur, 4*3600, 20*3600, merge_function=None)
-print("Entrances:", entrances)
-print("Exits:", exits)
 
 def navigate_lines(filepath):
     with open(filepath, mode='r', encoding='utf-8', newline='') as f:
@@ -97,7 +95,7 @@ def navigate_lines(filepath):
     draw(index[0] % len(lines))
     plt.show()
 
-#navigate_lines(files[idice_folder])
+
 
 def presence_in_cells(cells,stamps,dic_cells_nb_user,dic_cells_nb_connections):
     """
@@ -214,5 +212,44 @@ def affichage_cells(dic):
             plt.xticks(range(24))
             plt.grid(axis='y', alpha=0.75)
             plt.show()
+
+def afficher_ex_class(files = INTERMEDIATE_PATH / "user_generalised_classification_by_user.csv"):
+    """
+    This function will sort users by cluster and show a random example of user for each cluster with the presence over time and the cells used.
+    """
+    df = pd.read_csv(files, sep=";")
+    for cluster in range(5):
+        users_in_cluster = df[df["user_presence_cluster"] == cluster]
+        if not users_in_cluster.empty:
+            random_user = users_in_cluster.sample(n=1).iloc[0]
+            user_id = random_user["user_id"]
+            day = random_user["day"]
+            print(f"Cluster {cluster} - User {user_id} - Day {day}")
+            user_file = INPUT_DIR / f"{day}_no_duplicate.csv"
+            with open(user_file, mode='r', encoding='utf-8', newline='') as f:
+                reader = csv.reader(f, delimiter=';')
+                for line in reader:
+                    if int(line[0]) == user_id:
+                        utilisateur = line
+                        break
+            user_stamps = [int(ts) for ts in utilisateur[9::2]]
+            plot_presence_over_time(user_stamps, id_user_id=user_id, day=day)
+            user_cells = [c for c in utilisateur[8::2]]
+            print(f"Cells used by user {user_id}: {set(user_cells)}")
+
         
-#affichage_cells(dic_cells_nb_user)
+
+
+if __name__ == "__main__":
+    #plot_presence_over_time(user_stamps,id_user_id=id_utilisateur, day=get_day(files[idice_folder]))
+
+    #print("Enstrances and exits for user", id_utilisateur)
+    #entrances, exits = entree_exit(utilisateur, 4*3600, 20*3600, merge_function=None)
+    #print("Entrances:", entrances)
+    #print("Exits:", exits)
+
+    #navigate_lines(files[idice_folder])
+
+    #affichage_cells(dic_cells_nb_user)
+
+    afficher_ex_class()
