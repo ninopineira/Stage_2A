@@ -48,7 +48,7 @@ def entree_exit(line, morning, evening, merge_function = None):
         user_stamps = [int(ts) for ts in line[9::2]]
 
     if len(user_cells) <= 1 or len(user_stamps) <= 1:
-        return None, None
+        return [],[]
 
 
     entrances = []
@@ -119,9 +119,7 @@ for file in tqdm.tqdm(files):
             i = classify_profil(user_stamps)
 
             entrance, exits = entree_exit(line,4*3600,20*3600, merge_function=None)
-            if entrance is None or exits is None:
-                break
-
+            
             list_entrance[i] += entrance
             list_exit[i] += exits
 
@@ -132,6 +130,7 @@ for file in tqdm.tqdm(files):
             entrance_2g3g_merged, exit_2g3g_merged = entree_exit(line,4*3600,20*3600, merge_function="2g3g")
             list_entrance_2g3g_merged[i] += entrance_2g3g_merged
             list_exit_2g3g_merged[i] += exit_2g3g_merged
+            
     for i in range(5):
         rows_no_merge += build_day_rows(day, list_entrance[i], list_exit[i],i)
         rows_simple += build_day_rows(day, list_entrance_simple_merged[i], list_exit_simple_merged[i],i)

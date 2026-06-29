@@ -3,6 +3,7 @@ import matplotlib.cm as cm
 import pandas as pd
 from pathlib import Path
 import csv
+from datetime import datetime
 
 MAIN_DIR = Path(__file__).parent.parent.parent
 STATS_DIR = MAIN_DIR / "Database/no_duplicate"
@@ -34,10 +35,12 @@ constrained_layout=True,
 )
 axes = axes.flatten()
 
-colors = cm.tab20.colors
+# Mon, Tue, Wed, Thu, Fri, Sat, Sun
+DAY_COLORS = ["#4C72B0", "#DD8452", "#55A868", "#C44E52", "#8172B2", "#E377C2", "#7F7F7F"]
 
 for i, file in enumerate(files):
     day = get_day(file)
+    weekday = datetime.strptime(day, "%Y-%m-%d").weekday()
     ocupancy_by_hour = {hour: 0 for hour in range(24)}
     with open(file, mode='r', encoding='utf-8', newline='') as f:
         reader = csv.reader(f, delimiter=';')
@@ -49,7 +52,7 @@ for i, file in enumerate(files):
             ocupancy_by_hour = get_user_occupancy(user_stamps, ocupancy_by_hour)
 
     ax = axes[i]
-    ax.bar(ocupancy_by_hour.keys(), ocupancy_by_hour.values(), color=colors[i % len(colors)], width=0.7)
+    ax.bar(ocupancy_by_hour.keys(), ocupancy_by_hour.values(), color=DAY_COLORS[weekday], width=0.7)
     ax.tick_params(axis="x", rotation=45, labelsize=7)
     ax.tick_params(axis="y", labelsize=7)
     ax.grid(axis="y", linestyle="--", alpha=0.4)
@@ -62,6 +65,8 @@ for i, file in enumerate(files):
     if i % N_COLS == 0:
         ax.set_ylabel(f"Sum of Users", fontsize=8)
 
+plt.suptitle("Sum of users present in the area by hour and by day", fontsize=12, fontweight="bold")
+plt.savefig(OUTPUT_DIR / "sum_by_day_user_presence.png")
 plt.show() 
 
     

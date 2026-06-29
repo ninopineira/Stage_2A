@@ -84,7 +84,7 @@ def a_gap(user_stamps : list[int]):
     previous_stamp = user_stamps[0]
 
     for stamp in user_stamps[1:]:
-        if 14400 <= stamp < 57600 and 14400 <= previous_stamp < 57600 and stamp - previous_stamp > 4*3600 + 60: # if the timestamp is between 4am and 8pm, we consider that the user has a gap during the day
+        if stamp - previous_stamp > 4*3600 + 60: # if the timestamp is between 4am and 8pm, we consider that the user has a gap during the day
             return True
         previous_stamp = stamp
     
@@ -132,10 +132,10 @@ def name_cluster(cluster_code : int):
         return "Unknown"
     
     cluster_names = {
-        0 : "Home and work users",
-        1 : "Home in the area but not at work users",
-        2 : "Morning users",
-        3 : "Evening users",
+        0 : "Always present",
+        1 : "Home but out workers",
+        2 : "Night residents leaving during the day",
+        3 : "Day arrivals staying overnight",
         4 : "Passing through the area"
     }
 

@@ -321,8 +321,8 @@ def get_user_cells(cells_morning, cells_activity, cells_evening, stamps_activity
                     old_stamp = current_timestamp
 
         for i,cell in enumerate(time_stayed_in_cells):
-            if time_stayed_in_cells[cell] >= activity_stay_time and cell not in nb_activity_cells_merge:
-                nb_activity_cells_merge.append(cell)
+            if time_stayed_in_cells[cell] >= activity_stay_time and cell not in nb_activity_cells:
+                nb_activity_cells.append(cell)
 
         candidates_activity = {cellid for cellid in time_stayed_in_cells.keys() if time_stayed_in_cells[cellid] >= activity_stay_time}
 
@@ -342,7 +342,7 @@ def get_user_cells(cells_morning, cells_activity, cells_evening, stamps_activity
     # ====== #
     return Cell_Home, Cell_Activity, Home_and_Activity_are_same, \
             merged_Cell_Home, merged_Cell_Activity, merged_Home_and_Activity_are_same, \
-            reason_None, useful_merge_count_home, useful_merge_count_300, len(nb_activity_cells) ,len(nb_activity_cells_merge)
+            reason_None, useful_merge_count_home, useful_merge_count_300, len(nb_activity_cells) ,len([merge_func(c) for c in nb_activity_cells])
     
 def process_user_activity(cells : list[str], stamps : list[int], 
                           morning : int | None = 15000, evening : int | None = 71400, 

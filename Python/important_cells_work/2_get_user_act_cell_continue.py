@@ -22,8 +22,6 @@ files = [file for file in INPUT_DIR.glob("*.csv")]
 INTERMEDIATE_RESULT = MAIN_DIR / f"results/intermediate_result"
 INTERMEDIATE_RESULT.mkdir(parents=True, exist_ok=True)
 
-OUTPUT_DIR = MAIN_DIR / f"results/{dataset_name}/plots/important_cells_work"
-
 
 ACTIVITY_PERIOD = { # There is a small difference between the end of the morning and start of activity and same for the evening
     "Home_04h10-19h50_Activity_05h00-19h00": (18000, 68400), # Original working period (from 05h00 to 19h00)

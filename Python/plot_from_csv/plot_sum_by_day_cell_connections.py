@@ -30,11 +30,11 @@ for file in files[1:2]:
     is_users = "use_cell" in file.name
     metric_label = "Users" if is_users else "Connections"
 
-    colors = cm.tab20.colors
+    # Mon, Tue, Wed, Thu, Fri, Sat, Sun
+    DAY_COLORS = ["#4C72B0", "#DD8452", "#55A868", "#C44E52", "#8172B2", "#E377C2", "#7F7F7F"]
 
     fig, axes = plt.subplots(
         n_rows, N_COLS,
-        figsize=(N_COLS * 3.5, n_rows * 3),
         sharey=True,
         constrained_layout=True,
     )
@@ -42,7 +42,7 @@ for file in files[1:2]:
 
     for i, day in enumerate(days):
         ax = axes[i]
-        ax.bar(hours, df_grouped.loc[day].iloc[1:], color=colors[i % len(colors)], width=0.7)
+        ax.bar(hours, df_grouped.loc[day].iloc[1:], color=DAY_COLORS[i % len(DAY_COLORS)], width=0.7)
         ax.tick_params(axis="x", rotation=45, labelsize=7)
         ax.tick_params(axis="y", labelsize=7)
         ax.grid(axis="y", linestyle="--", alpha=0.4)

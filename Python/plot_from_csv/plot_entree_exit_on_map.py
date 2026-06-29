@@ -15,15 +15,14 @@ def name_cluster(cluster_code : int):
         return "Unknown"
     
     cluster_names = {
-        0 : "Home and work users",
-        1 : "Home in the area but not at work users",
-        2 : "Morning users",
-        3 : "Evening users",
+        0 : "Always present",
+        1 : "Home but out workers",
+        2 : "Night residents leaving during the day",
+        3 : "Day arrivals staying overnight",
         4 : "Passing through the area"
     }
 
     return cluster_names.get(cluster_code, "Unknown")
-
 
 def extract_letters(cellid: str) -> str:
     match = re.match(r"([a-zA-Z]+)", cellid)
@@ -64,7 +63,7 @@ for stats_file, coords, output_file, title in CONFIGS:
     stats = pd.read_csv(stats_path, sep=";")
     stats = stats.dropna(subset=["cluster_type"])
     stats["cluster_type"] = stats["cluster_type"].astype(int)
-    clusters = sorted(stats["cluster_type"].unique().tolist())
+    clusters = sorted(set(range(5)) | set(stats["cluster_type"].unique().tolist()))
 
     # Aggregate by (station, cluster_type) summing over all days
     agg = stats.groupby(["station", "cluster_type"])[["entrance_count", "exit_count"]].sum().reset_index()
@@ -152,6 +151,13 @@ for stats_file, coords, output_file, title in CONFIGS:
       var fgIn        = {fg_in.get_name()};
       var fgOut       = {fg_out.get_name()};
 
+      var MIN_R = 3, MAX_R = 20;
+
+      function scaleRadius(val, maxVal) {{
+        if (val === 0 || maxVal === 0) return 0;
+        return MIN_R + (val / maxVal) * (MAX_R - MIN_R);
+      }}
+
       window.updateLayers = function() {{
         fgIn.clearLayers();
         fgOut.clearLayers();
@@ -161,6 +167,9 @@ for stats_file, coords, output_file, title in CONFIGS:
           return el && el.checked;
         }});
 
+        // First pass: compute totals and find the max for normalization
+        var totals = {{}};
+        var maxIn = 0, maxOut = 0;
         Object.entries(stationData).forEach(function([station, data]) {{
           var totalIn = 0, totalOut = 0;
           selected.forEach(function(c) {{
@@ -169,22 +178,29 @@ for stats_file, coords, output_file, title in CONFIGS:
               totalOut += data.clusters[c]['out'];
             }}
           }});
+          totals[station] = {{in: totalIn, out: totalOut}};
+          if (totalIn  > maxIn)  maxIn  = totalIn;
+          if (totalOut > maxOut) maxOut = totalOut;
+        }});
 
-          if (totalIn > 0) {{
+        // Second pass: draw circles with normalized radius
+        Object.entries(totals).forEach(function([station, t]) {{
+          var data = stationData[station];
+          if (t.in > 0) {{
             L.circleMarker([data.lat, data.lon], {{
-              radius: totalIn / 7,
+              radius: scaleRadius(t.in, maxIn),
               color: 'steelblue',
               fill: true,
               fillOpacity: 0.6,
-            }}).bindTooltip(station + ' — entrées : ' + totalIn).addTo(fgIn);
+            }}).bindTooltip(station + ' — entrées : ' + t.in).addTo(fgIn);
           }}
-          if (totalOut > 0) {{
+          if (t.out > 0) {{
             L.circleMarker([data.lat, data.lon], {{
-              radius: totalOut / 7,
+              radius: scaleRadius(t.out, maxOut),
               color: 'orange',
               fill: true,
               fillOpacity: 0.6,
-            }}).bindTooltip(station + ' — sorties : ' + totalOut).addTo(fgOut);
+            }}).bindTooltip(station + ' — sorties : ' + t.out).addTo(fgOut);
           }}
         }});
       }};

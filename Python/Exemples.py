@@ -9,11 +9,11 @@ import pandas as pd
 import re
 
 MAIN_DIR = Path(__file__).parent.parent
-INPUT_DIR = MAIN_DIR /  f"Database/no_duplicate"
+IMPUT_DIR = MAIN_DIR /  f"Database/no_duplicate"
 INTERMEDIATE_PATH = MAIN_DIR / f"results/intermediate_result"
 INTERMEDIATE_PATH.mkdir(parents=True, exist_ok=True)
 
-files = [file for file in INPUT_DIR.glob("*.csv")]
+files = [file for file in IMPUT_DIR.glob("*.csv")]
 
 def plot_presence_over_time(unser_stamps, id_user_id, day):
     """
@@ -39,12 +39,12 @@ def plot_presence_over_time(unser_stamps, id_user_id, day):
 # 2578,0 un utilisateur présent presque toute la journée, mais qui à une absence au milieu.
 # 3740,0 un utilisateur présent que très tot le matin donc pas d'entrée mais une sortie.
 # 2069758,2 un utilisateur qui arrive au court de la journée mais qui reste jusqu'à la fin, il a une entrée mais pas de sortie.
-# 2069878,2 un utilisateur qui n'a pas d'activité mais des pings de verification toute la journée, il n'a ni entrée ni sortie.
+# 2069878,2 un utilisateur qui n'a pas d'activité mais des records de verification toute la journée, il n'a ni entrée ni sortie.
 
 # 2069871,2 un exemple d'utilisateur avec des trous de partout pour montrer comment se fait l'occupation des cellules au cours de la journée.
 # 992,0 un exemple d'utilisateur pour montrer le nombre de connexions par heure et par cellule.
 
-id_utilisateur,idice_folder = 856,0
+id_utilisateur,idice_folder = 2069878,2
 
 with open(files[idice_folder], mode='r', encoding='utf-8', newline='') as f:
     reader = csv.reader(f, delimiter=';')
@@ -208,7 +208,7 @@ def affichage_cells(dic):
             plt.bar(range(24), dic[cell])
             plt.title(f"Cell {cell} — User {id_utilisateur}")
             plt.xlabel("Hour of the Day")
-            plt.ylabel("Number of Connections")
+            plt.ylabel("Connections in the cell")
             plt.xticks(range(24))
             plt.grid(axis='y', alpha=0.75)
             plt.show()
@@ -241,15 +241,15 @@ def afficher_ex_class(files = INTERMEDIATE_PATH / "user_generalised_classificati
 
 
 if __name__ == "__main__":
-    #plot_presence_over_time(user_stamps,id_user_id=id_utilisateur, day=get_day(files[idice_folder]))
+    plot_presence_over_time(user_stamps,id_user_id=id_utilisateur, day=get_day(files[idice_folder]))
 
-    #print("Enstrances and exits for user", id_utilisateur)
-    #entrances, exits = entree_exit(utilisateur, 4*3600, 20*3600, merge_function=None)
-    #print("Entrances:", entrances)
-    #print("Exits:", exits)
+    print("Enstrances and exits for user", id_utilisateur)
+    entrances, exits = entree_exit(utilisateur, 4*3600, 20*3600, merge_function=None)
+    print("Entrances:", entrances)
+    print("Exits:", exits)
 
     #navigate_lines(files[idice_folder])
 
     #affichage_cells(dic_cells_nb_user)
 
-    afficher_ex_class()
+    #afficher_ex_class()
