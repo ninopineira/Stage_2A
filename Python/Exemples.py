@@ -13,7 +13,7 @@ INPUT_DIR = MAIN_DIR /  f"Database/no_duplicate"
 INTERMEDIATE_PATH = MAIN_DIR / f"results/intermediate_result"
 INTERMEDIATE_PATH.mkdir(parents=True, exist_ok=True)
 
-files = [file for file in INPUT_DIR.glob("*.csv")]
+files = sorted(INPUT_DIR.glob("*.csv"))
 
 def plot_presence_over_time(unser_stamps, id_user_id, day):
     """
