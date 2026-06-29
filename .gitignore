@@ -1,5 +1,9 @@
 QGIS/
 Database/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
 
 results/
 results/cd_142/plots/

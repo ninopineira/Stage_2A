@@ -248,8 +248,8 @@ if __name__ == "__main__":
     #print("Entrances:", entrances)
     #print("Exits:", exits)
 
-    #navigate_lines(files[idice_folder])
+    navigate_lines(files[idice_folder])
 
-    #affichage_cells(dic_cells_nb_user)
+    affichage_cells(dic_cells_nb_user)
 
     afficher_ex_class()
