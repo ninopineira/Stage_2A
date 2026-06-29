@@ -145,40 +145,48 @@ def name_cluster(cluster_code : int):
 # CLASSIFICATION PROCESSING #
 # ========================= #
 
-for file in tqdm.tqdm(files):
-    day = get_day(file)
-    with open(file, "r") as f:
-        reader = csv.reader(f, delimiter=";")
-        for line in reader:
-            user_id = line[0]
-            user_cells = [c for c in line[8::2] if c]
-            user_stamps = [int(ts) for ts in line[9::2] if ts]
+def build_classification():
+    """Process every day file and write the classification CSVs.
 
-            presence_code = classify(user_stamps)
+    Kept out of import time: this scans the whole dataset, so it only runs
+    when this script is executed directly, not when another module imports
+    `classify_profil`.
+    """
+    for file in tqdm.tqdm(files):
+        day = get_day(file)
+        with open(file, "r") as f:
+            reader = csv.reader(f, delimiter=";")
+            for line in reader:
+                user_id = line[0]
+                user_cells = [c for c in line[8::2] if c]
+                user_stamps = [int(ts) for ts in line[9::2] if ts]
 
-            presence_cluster = classify_profil(user_stamps)
-            presence_cluster_name = name_cluster(presence_cluster)
+                presence_code = classify(user_stamps)
 
-            result_day["user_id"].append(user_id)
-            result_day["day"].append(day)
-            result_day["user_presence_classification"].append(presence_code)
+                presence_cluster = classify_profil(user_stamps)
+                presence_cluster_name = name_cluster(presence_cluster)
 
-            result_day_bis["user_id"].append(user_id)
-            result_day_bis["day"].append(day)
-            result_day_bis["user_presence_classification"].append(presence_code)
-            result_day_bis["user_presence_cluster"].append(presence_cluster)
-            result_day_bis["user_presence_cluster_name"].append(presence_cluster_name)
+                result_day["user_id"].append(user_id)
+                result_day["day"].append(day)
+                result_day["user_presence_classification"].append(presence_code)
 
-            
+                result_day_bis["user_id"].append(user_id)
+                result_day_bis["day"].append(day)
+                result_day_bis["user_presence_classification"].append(presence_code)
+                result_day_bis["user_presence_cluster"].append(presence_cluster)
+                result_day_bis["user_presence_cluster_name"].append(presence_cluster_name)
 
-df = pd.DataFrame(result_day)
-df_bis = pd.DataFrame(result_day_bis)
+    df = pd.DataFrame(result_day)
+    df_bis = pd.DataFrame(result_day_bis)
+
+    df = df.groupby(by=["day","user_presence_classification"]).size().unstack(fill_value=0)
+
+    df.to_csv(OUTPUT_DIR / "user_generalised_classification.csv", sep=";", header=True, index=True, index_label=True)
+    df_bis.to_csv(OUTPUT_DIR / "user_generalised_classification_by_user.csv", sep=";", header=True, index=False)
 
 
-df = df.groupby(by=["day","user_presence_classification"]).size().unstack(fill_value=0)
-
-df.to_csv(OUTPUT_DIR / "user_generalised_classification.csv", sep=";", header=True, index=True, index_label=True)
-df_bis.to_csv(OUTPUT_DIR / "user_generalised_classification_by_user.csv", sep=";", header=True, index=False)
+if __name__ == "__main__":
+    build_classification()
 
 
 

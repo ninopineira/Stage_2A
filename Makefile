@@ -47,6 +47,22 @@ run: $(STAMP)       ## Run Python/Exemples.py
 	@echo ">> Running Python/Exemples.py"
 	cd Python && ../$(VENV_PYTHON) Exemples.py
 
+# --- Data preprocessing ----------------------------------------------------
+# Regenerate the intermediate CSVs in results/intermediate_result/.
+# These scan the whole dataset, so run them only when the source data changes.
+.PHONY: stats
+stats: $(STAMP)     ## Regenerate entrance/exit stats CSVs
+	@echo ">> Building entrance/exit stats"
+	cd Python && ../$(VENV_PYTHON) STATS_get_start_sequece.py
+
+.PHONY: classify
+classify: $(STAMP)  ## Regenerate the user classification CSVs
+	@echo ">> Building user classification"
+	cd Python && ../$(VENV_PYTHON) important_cells_work/generalised_classification_users.py
+
+.PHONY: data
+data: classify stats  ## Regenerate all intermediate CSVs (classification + stats)
+
 # --- Cleanup ---------------------------------------------------------------
 .PHONY: clean
 clean:              ## Remove the venv and Python caches
