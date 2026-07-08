@@ -7,8 +7,8 @@ NUMPY_DIR  = MAIN_DIR / "results/numpy"
 OUTPUT_DIR = MAIN_DIR / "results/plots"
 
 MERGES         = ["no_merge", "simple", "2g3g"]
-MERGE_LABELS   = ["Sans merge", "Simple", "2G / 3G"]
-PERIOD_NAMES   = ["Matin", "Jour", "Soir"]
+MERGE_LABELS   = ["No merge", "Simple", "2G / 3G"]
+PERIOD_NAMES   = ["Morning", "Day", "Evening"]
 MORNING_ENDS   = [4, 5, 6]
 EVENING_STARTS = [18, 19, 20]
 N_BINS         = 50
@@ -192,17 +192,32 @@ data_json = json.dumps(payload, separators=(",", ":"))
 # ─────────────────────────────────────────────────────────────────────────────
 # HTML  — 3 rows (merge) × 3 cols (Srand+Sunc | Srel | Pmax)
 # ─────────────────────────────────────────────────────────────────────────────
-chart_divs = "\n".join(
-    f'      <div id="chart-{row}-{col}" class="chart-cell"></div>'
+COL_HEADER_HTML = (
+    '      <div class="col-headers">\n'
+    '        <div class="col-header">P(S<sup>rand</sup>) &amp; P(S<sup>unc</sup>)</div>\n'
+    '        <div class="col-header">P(S<sup>rel</sup>)&nbsp;&nbsp;relative entropy</div>\n'
+    '        <div class="col-header">P(P<sup>max</sup>)&nbsp;&nbsp;predictability</div>\n'
+    '      </div>\n'
+)
+
+merge_sections = "\n".join(
+    '    <div class="merge-section">\n'
+    f'      <div class="row-header" id="row-header-{row}"></div>\n' +
+    COL_HEADER_HTML +
+    '      <div class="charts-row">\n' +
+    "\n".join(
+        f'        <div id="chart-{row}-{col}" class="chart-cell"></div>'
+        for col in range(3)
+    ) +
+    '\n      </div>\n    </div>'
     for row in range(len(MERGES))
-    for col in range(3)
 )
 
 html = f"""<!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Histogrammes entropie par periode</title>
+  <title>Entropy histograms by period</title>
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -211,7 +226,7 @@ html = f"""<!DOCTYPE html>
     .controls {{
       display: flex; gap: 20px; flex-wrap: wrap; justify-content: center;
       background: white; padding: 12px 24px; border-radius: 8px;
-      box-shadow: 0 1px 4px rgba(0,0,0,.12); margin-bottom: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.12); margin-bottom: 12px;
     }}
     .control-group {{ display: flex; flex-direction: column; gap: 4px; }}
     .control-group label {{
@@ -223,20 +238,26 @@ html = f"""<!DOCTYPE html>
       font-size: .88em; background: white; cursor: pointer; outline: none;
     }}
     select:focus {{ border-color: #4C72B0; box-shadow: 0 0 0 2px rgba(76,114,176,.2); }}
+    .selection-display {{
+      text-align: center; font-size: 1em; font-weight: bold;
+      color: #333; margin-bottom: 14px;
+    }}
     .col-headers {{
       display: grid; grid-template-columns: repeat(3, 1fr);
-      gap: 12px; margin-bottom: 4px;
+      gap: 12px; margin-bottom: 6px;
     }}
     .col-header {{
       text-align: center; font-weight: bold; font-size: .85em;
       color: #444; padding: 5px; background: white;
       border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,.07);
     }}
-    .grid {{
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      grid-template-rows: repeat({len(MERGES)}, 1fr);
-      gap: 12px;
+    .merge-section {{ margin-bottom: 20px; }}
+    .row-header {{
+      font-weight: bold; font-size: 1.05em; color: #333;
+      padding: 6px 4px 6px 4px;
+    }}
+    .charts-row {{
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
     }}
     .chart-cell {{
       background: white; border-radius: 6px;
@@ -246,18 +267,18 @@ html = f"""<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <h1>Distributions des entropies et de P<sup>max</sup> par fenetre temporelle</h1>
+  <h1>Entropy and P<sup>max</sup> distributions by time window</h1>
   <div class="controls">
     <div class="control-group">
-      <label>Periode</label>
+      <label>Period</label>
       <select id="period">
-        <option value="0">Matin</option>
-        <option value="1" selected>Jour</option>
-        <option value="2">Soir</option>
+        <option value="0">Morning</option>
+        <option value="1" selected>Day</option>
+        <option value="2">Evening</option>
       </select>
     </div>
     <div class="control-group">
-      <label>Fin de matinee</label>
+      <label>Morning end</label>
       <select id="morning-end">
         <option value="0">4h</option>
         <option value="1">5h</option>
@@ -265,7 +286,7 @@ html = f"""<!DOCTYPE html>
       </select>
     </div>
     <div class="control-group">
-      <label>Debut du soir</label>
+      <label>Evening start</label>
       <select id="evening-start">
         <option value="0">18h</option>
         <option value="1">19h</option>
@@ -273,14 +294,8 @@ html = f"""<!DOCTYPE html>
       </select>
     </div>
   </div>
-  <div class="col-headers">
-    <div class="col-header">P(S<sup>rand</sup>) &amp; P(S<sup>unc</sup>)</div>
-    <div class="col-header">P(S<sup>rel</sup>)&nbsp;&nbsp;entropie normalisee</div>
-    <div class="col-header">P(P<sup>max</sup>)&nbsp;&nbsp;predictabilite</div>
-  </div>
-  <div class="grid">
-{chart_divs}
-  </div>
+  <div class="selection-display" id="selection-display"></div>
+{merge_sections}
 
   <script>
     const P = {data_json};
@@ -293,27 +308,27 @@ html = f"""<!DOCTYPE html>
           {{ x: d.su_x, y: d.su_y, type:'bar', name:'Sᵘⁿᶜ (Shannon)',
              marker:{{color:'mediumseagreen', opacity:0.75}}, width: d.su_x[1]-d.su_x[0] }},
           {{ x:[d.mr,d.mr], y:[0,Math.max(...d.sr_y)], type:'scatter', mode:'lines',
-             name:'Moy. Sʳᵃⁿᵈ='+d.mr.toFixed(2), line:{{color:'goldenrod',dash:'dash',width:2}} }},
+             name:'Mean Sʳᵃⁿᵈ='+d.mr.toFixed(2), line:{{color:'goldenrod',dash:'dash',width:2}} }},
           {{ x:[d.mu,d.mu], y:[0,Math.max(...d.su_y)], type:'scatter', mode:'lines',
-             name:'Moy. Sᵘⁿᶜ='+d.mu.toFixed(2),  line:{{color:'seagreen', dash:'dash',width:2}} }}
+             name:'Mean Sᵘⁿᶜ='+d.mu.toFixed(2),  line:{{color:'seagreen', dash:'dash',width:2}} }}
         ],
-        xLabel: 'Entropie (bits)'
+        xLabel: 'Entropy (bits)'
       }},
       {{
         traces: (d) => [
           {{ x: d.ss_x, y: d.ss_y, type:'bar', name:'Sʳᵉˡ',
              marker:{{color:'steelblue', opacity:0.75}}, width: d.ss_x[1]-d.ss_x[0] }},
           {{ x:[d.ms,d.ms], y:[0,Math.max(...d.ss_y)], type:'scatter', mode:'lines',
-             name:'Moy.='+d.ms.toFixed(3), line:{{color:'navy',dash:'dash',width:2}} }}
+             name:'Mean='+d.ms.toFixed(3), line:{{color:'navy',dash:'dash',width:2}} }}
         ],
-        xLabel: 'Entropie normalisee'
+        xLabel: 'Relative entropy'
       }},
       {{
         traces: (d) => [
           {{ x: d.sp_x, y: d.sp_y, type:'bar', name:'Pᵐᵃˣ',
              marker:{{color:'mediumpurple', opacity:0.75}}, width: d.sp_x[1]-d.sp_x[0] }},
           {{ x:[d.mp,d.mp], y:[0,Math.max(...d.sp_y)], type:'scatter', mode:'lines',
-             name:'Moy.='+d.mp.toFixed(3), line:{{color:'purple',dash:'dash',width:2}} }}
+             name:'Mean='+d.mp.toFixed(3), line:{{color:'purple',dash:'dash',width:2}} }}
         ],
         xLabel: 'P max'
       }}
@@ -327,19 +342,21 @@ html = f"""<!DOCTYPE html>
       const pLabel = P.periodNames[+period];
       const mLabel = P.morningEnds[+mEnd];
       const eLabel = P.eveningStarts[+eStart];
-      const subTitle = pLabel + ' | matin→' + mLabel + 'h | soir←' + eLabel + 'h';
+
+      document.getElementById('selection-display').textContent =
+        pLabel + '  |  morning → ' + mLabel + 'h  |  evening ← ' + eLabel + 'h';
 
       P.merges.forEach((merge, row) => {{
+        document.getElementById('row-header-' + row).textContent = P.mergeLabels[row];
         const d = P.hist[key][merge];
         COL_CONFIGS.forEach((cfg, col) => {{
           Plotly.react('chart-' + row + '-' + col,
             cfg.traces(d),
             {{
-              title: {{ text: P.mergeLabels[row] + ' — ' + subTitle, font: {{size: 11}} }},
               barmode: 'overlay',
-              margin: {{ t: 45, r: 15, b: 45, l: 50 }},
+              margin: {{ t: 15, r: 15, b: 45, l: 50 }},
               xaxis: {{ title: {{text: cfg.xLabel, font:{{size:9}}}}, tickfont:{{size:8}} }},
-              yaxis: {{ title: {{text: 'Densite',  font:{{size:9}}}}, tickfont:{{size:8}} }},
+              yaxis: {{ title: {{text: 'Density',  font:{{size:9}}}}, tickfont:{{size:8}} }},
               legend: {{ font:{{size:8}}, x:0.98, xanchor:'right', y:0.98 }},
               paper_bgcolor:'white', plot_bgcolor:'#fafafa'
             }},

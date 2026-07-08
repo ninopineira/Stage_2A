@@ -128,7 +128,7 @@ def get_user_cells(cells_activity, stamps_activity, useful_merge_count_300, acti
     # Exit 1 # if not enough records
     # ====== # 
     if Cell_Activity == "":
-        return Cell_Activity , reason_None, useful_merge_count_300, len(nb_activity_cells)
+        return nb_activity_cells , reason_None, useful_merge_count_300, len(nb_activity_cells)
     
     # ======= #
     # Phase 1 # First search of cells
@@ -145,7 +145,7 @@ def get_user_cells(cells_activity, stamps_activity, useful_merge_count_300, acti
             old_stamp = stamps_activity[0]
             for current_cell,current_timestamp in zip(cells_activity[1:], stamps_activity[1:]):
                 if current_cell != old_cell:
-                    if current_timestamp-old_stamp < 4*3600: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
+                    if current_timestamp-old_stamp < 4*3600 + 60: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
                         time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
                         old_cell = current_cell
                         old_stamp = current_timestamp
@@ -159,7 +159,7 @@ def get_user_cells(cells_activity, stamps_activity, useful_merge_count_300, acti
                         time_stayed_in_cells[old_cell] = 0
             
                 else: # if the user is still in the same cell, we just update the time stayed in this cell
-                    if current_timestamp-old_stamp < 4*3600: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
+                    if current_timestamp-old_stamp < 4*3600 + 60: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
                         time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
                         old_cell = current_cell
                         old_stamp = current_timestamp
@@ -201,7 +201,7 @@ def get_user_cells(cells_activity, stamps_activity, useful_merge_count_300, acti
             old_stamp = stamps_activity[0]
             for current_cell,current_timestamp in zip(cells_activity[1:], stamps_activity[1:]):
                 if current_cell != old_cell:
-                    if current_timestamp-old_stamp < 4*3600: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
+                    if current_timestamp-old_stamp < 4*3600 + 60: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
                         time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
                         old_cell = current_cell
                         old_stamp = current_timestamp
@@ -215,7 +215,7 @@ def get_user_cells(cells_activity, stamps_activity, useful_merge_count_300, acti
                         time_stayed_in_cells[old_cell] = 0
             
                 else: # if the user is still in the same cell, we just update the time stayed in this cell
-                    if current_timestamp-old_stamp < 4*3600: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
+                    if current_timestamp-old_stamp < 4*3600 + 60: # if the time between two records is more than 4 hours, we consider that the user has disconnected and reconnected and we reset the time stayed in cells
                         time_stayed_in_cells[old_cell] += current_timestamp-old_stamp
                         old_cell = current_cell
                         old_stamp = current_timestamp
@@ -246,7 +246,7 @@ def get_user_cells(cells_activity, stamps_activity, useful_merge_count_300, acti
     # ====== #
     # Exit 3 #
     # ====== #
-    return Cell_Activity,reason_None, useful_merge_count_300, len(nb_activity_cells)
+    return nb_activity_cells,reason_None, useful_merge_count_300, len(nb_activity_cells)
     
 def process_user_activity(cells : list[str], stamps : list[int], 
                           activity_start : int | None = 18000, activity_end : int | None = 68400,
@@ -270,9 +270,9 @@ def process_user_activity(cells : list[str], stamps : list[int],
         return None, reason_None, useful_merge_count_300, 0
     
     # Get the actual data we are looking for : the important cells of the user.
-    Cell_Activity, reason_None, useful_merge_count_300, nb_activity_cells= get_user_cells(cells_activity, stamps_activity, useful_merge_count_300, activity_stay_time=18000, merge_func = merge_func)
+    activity_cells, reason_None, useful_merge_count_300, nb_activity_cells= get_user_cells(cells_activity, stamps_activity, useful_merge_count_300, activity_stay_time=18000, merge_func = merge_func)
     
-    return Cell_Activity, reason_None, useful_merge_count_300, nb_activity_cells
+    return activity_cells, reason_None, useful_merge_count_300, nb_activity_cells
 
 # =========== #
 # MAIN SCRIPT # 2 types of merging are tested
@@ -287,7 +287,7 @@ for merge_name,merge_func in MERGE.items():
     result_days = {"user_id" : [],
                     "day" : [],
                     
-                    "Cell_Activity" : [],
+                    "activity_cells" : [],
                     
                     
                     "reason_None" : [],
@@ -308,13 +308,13 @@ for merge_name,merge_func in MERGE.items():
                 # Different temporal window are considred
                 for label, (activity_start, activity_end) in ACTIVITY_PERIOD.items():
                     
-                    Cell_Activity, reason_None, useful_merge_count_300, nb_activity_cells = process_user_activity(cells=user_cells, stamps=user_stamps, activity_start=activity_start, activity_end=activity_end, useful_merge_count_300=useful_merge_count_300, merge_func=merge_func)
+                    activity_cells, reason_None, useful_merge_count_300, nb_activity_cells = process_user_activity(cells=user_cells, stamps=user_stamps, activity_start=activity_start, activity_end=activity_end, useful_merge_count_300=useful_merge_count_300, merge_func=merge_func)
                 
                 
                     result_days["user_id"].append(user_id)
                     result_days["day"].append(day)
                     
-                    result_days["Cell_Activity"].append(Cell_Activity)
+                    result_days["activity_cells"].append(activity_cells)
                     
                     result_days["reason_None"].append(reason_None)
                     result_days["period"].append(label)

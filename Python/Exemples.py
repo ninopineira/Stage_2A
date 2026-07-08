@@ -9,11 +9,11 @@ import pandas as pd
 import re
 
 MAIN_DIR = Path(__file__).parent.parent
-IMPUT_DIR = MAIN_DIR /  f"Database/no_duplicate"
+INPUT_DIR = MAIN_DIR /  f"Database/no_duplicate"
 INTERMEDIATE_PATH = MAIN_DIR / f"results/intermediate_result"
 INTERMEDIATE_PATH.mkdir(parents=True, exist_ok=True)
 
-files = [file for file in IMPUT_DIR.glob("*.csv")]
+files = [file for file in INPUT_DIR.glob("*.csv")]
 
 def plot_presence_over_time(unser_stamps, id_user_id, day):
     """
@@ -34,6 +34,51 @@ def plot_presence_over_time(unser_stamps, id_user_id, day):
     plt.grid(axis='y', alpha=0.75)
     plt.show()
 
+
+def plot_user_hourly_profile(cells: list, stamps: list, user_id="", day=""):
+    """
+    Plots the 10-minute connection profile of a user with one color per base station.
+    Stacked bar chart: X = 144 bins of 10 min across 24h, Y = number of connections,
+    each cell is a distinct color.
+    """
+    from collections import defaultdict
+
+    N = 144  # 24h × 6 bins of 10 minutes
+    per_cell = defaultdict(lambda: [0] * N)
+    for cell, stamp in zip(cells, stamps):
+        per_cell[cell][min(int(stamp) // 600, N - 1)] += 1
+
+    cell_list = sorted(per_cell.keys())
+    x      = np.arange(N)
+    cmap   = plt.get_cmap("tab20")
+    colors = [cmap(i % 20) for i in range(len(cell_list))]
+
+    _, ax = plt.subplots(figsize=(22, 5))
+    bottom = np.zeros(N)
+
+    for i, cell in enumerate(cell_list):
+        counts = np.array(per_cell[cell])
+        ax.bar(x, counts, bottom=bottom, color=colors[i], label=cell, alpha=0.85, width=1.0)
+        bottom += counts
+
+    tick_positions = np.arange(0, N, 6)           # one tick per hour
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels([f"{h}h" for h in range(24)], fontsize=8)
+    ax.set_xlabel("Time of day")
+    ax.set_ylabel("Number of connections")
+    title = ""
+    if user_id:
+        title += f"  —  User {user_id}"
+    if day:
+        title += f"  —  {day}"
+    ax.set_title(title)
+    ax.legend(fontsize=8, bbox_to_anchor=(1.01, 1), loc="upper left")
+    ax.grid(axis="y", alpha=0.4)
+
+    plt.tight_layout()
+    plt.show()
+
+
 # 856,0 un utilisateur qui fait un passage dans la zone en journée, il a une entrée et une sortie.
 # 1277,0 une utilisateur avec plein de connexions, présent tout la journée donc ni entrée ni sortie.
 # 2578,0 un utilisateur présent presque toute la journée, mais qui à une absence au milieu.
@@ -44,7 +89,13 @@ def plot_presence_over_time(unser_stamps, id_user_id, day):
 # 2069871,2 un exemple d'utilisateur avec des trous de partout pour montrer comment se fait l'occupation des cellules au cours de la journée.
 # 992,0 un exemple d'utilisateur pour montrer le nombre de connexions par heure et par cellule.
 
-id_utilisateur,idice_folder = 2069878,2
+## Les exemple pour les comparaisons d'activity cells sont les suivants :
+# 1769,0 un exemple d'utilisateur avec une activity cell qui est la même que celle du dataset.
+# 13611,0 un exemple d'utilisateur avec une activity cell qui est différente de celle du dataset.
+# 326,0  un exemple d'utilisateur avec une activity cell selon le dataset mais qui n'est pas détectée par l'algorithme.
+# 43,0   un exemple d'utilisateur avec une activity cell selon l'algorithme mais qui n'est pas dans le dataset.
+
+id_utilisateur,idice_folder = 43,0
 
 with open(files[idice_folder], mode='r', encoding='utf-8', newline='') as f:
     reader = csv.reader(f, delimiter=';')
@@ -240,16 +291,103 @@ def afficher_ex_class(files = INTERMEDIATE_PATH / "user_generalised_classificati
         
 
 
-if __name__ == "__main__":
-    plot_presence_over_time(user_stamps,id_user_id=id_utilisateur, day=get_day(files[idice_folder]))
+N_BINS_10MIN = 144  # 24h × 6 intervals of 10 minutes
 
-    print("Enstrances and exits for user", id_utilisateur)
-    entrances, exits = entree_exit(utilisateur, 4*3600, 20*3600, merge_function=None)
-    print("Entrances:", entrances)
-    print("Exits:", exits)
+
+def connections_per_10min(cells: list, stamps: list,
+                          dic_cells_connections: dict,
+                          dic_cells_returns: dict):
+    """
+    Counts connections per 10-minute bin (144 bins for 24h) per cell.
+
+    A connection is flagged as a "return" when the user reconnects to a cell
+    it has already visited after having been to at least one other cell in between
+    (A → B → A pattern: the first record of the second visit to A is a return).
+
+    cells                : ordered list of cell ids for one user/day
+    stamps               : ordered list of timestamps in seconds since midnight
+    dic_cells_connections: dict {cell: [0]*144}  normal connections (blue)
+    dic_cells_returns    : dict {cell: [0]*144}  return connections (red)
+    """
+    if not cells or not stamps:
+        return dic_cells_connections, dic_cells_returns
+
+    visited      = set()
+    previous_cell = None
+
+    for cell, stamp in zip(cells, stamps):
+        bin_idx = min(int(stamp) // 600, N_BINS_10MIN - 1)
+
+        if cell != previous_cell and cell in visited:
+            # First record after returning to a previously visited cell
+            dic_cells_returns[cell][bin_idx] += 1
+        else:
+            dic_cells_connections[cell][bin_idx] += 1
+
+        visited.add(cell)
+        previous_cell = cell
+
+    return dic_cells_connections, dic_cells_returns
+
+
+def plot_cells_10min(dic_cells_connections: dict, dic_cells_returns: dict,
+                     cell_id: str | None = None, user_id: str = ""):
+    """
+    Draws one bar chart per cell (or a single cell if cell_id is given).
+    Blue bars  = normal connections.
+    Red bars   = return connections (stacked on top of blue).
+    X-axis     = 144 bins of 10 minutes across 24h.
+    """
+    x             = np.arange(N_BINS_10MIN)
+    tick_positions = np.arange(0, N_BINS_10MIN, 6)   # one tick per hour
+    tick_labels    = [f"{h}h" for h in range(24)]
+
+    cells_to_plot = ([cell_id] if cell_id
+                     else sorted(set(dic_cells_connections) | set(dic_cells_returns)))
+
+    for cell in cells_to_plot:
+        normal  = np.array(dic_cells_connections.get(cell, [0] * N_BINS_10MIN))
+        returns = np.array(dic_cells_returns.get(cell,      [0] * N_BINS_10MIN))
+
+        if normal.sum() == 0 and returns.sum() == 0:
+            continue
+
+        _, ax = plt.subplots(figsize=(22, 4))
+
+        ax.bar(x, normal,  color="steelblue", alpha=0.85, label="Connection")
+        ax.bar(x, returns, color="red",       alpha=0.85, label="Return connection",
+               bottom=normal)
+
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels, fontsize=8)
+        ax.set_xlabel("Time of day")
+        ax.set_ylabel("Number of connections")
+        title = f"Cell {cell}"
+        if user_id:
+            title += f"  —  User {user_id}"
+        ax.set_title(title)
+        ax.legend(fontsize=9)
+        ax.grid(axis="y", alpha=0.4)
+
+        plt.tight_layout()
+        plt.show()
+
+
+if __name__ == "__main__":
+    #plot_presence_over_time(user_stamps,id_user_id=id_utilisateur, day=get_day(files[idice_folder]))
+
+    plot_user_hourly_profile(cells=user_cells, stamps=user_stamps, user_id=id_utilisateur, day=get_day(files[idice_folder]))
+
+    #print("Enstrances and exits for user", id_utilisateur)
+    #entrances, exits = entree_exit(utilisateur, 4*3600, 20*3600, merge_function=None)
+    #print("Entrances:", entrances)
+    #print("Exits:", exits)
 
     #navigate_lines(files[idice_folder])
 
     #affichage_cells(dic_cells_nb_user)
 
     #afficher_ex_class()
+
+    #dic_cells_connections, dic_cells_returns = connections_per_10min(user_cells, user_stamps, {cell: [0]*N_BINS_10MIN for cell in cell_ids}, {cell: [0]*N_BINS_10MIN for cell in cell_ids})
+    #plot_cells_10min(dic_cells_connections, dic_cells_returns, cell_id=None, user_id=id_utilisateur)

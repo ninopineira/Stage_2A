@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 
 MAIN_DIR = Path(__file__).parent.parent.parent
-INTERMEDIATE_PATH = MAIN_DIR / f"results/intermediate_result/classified_dataset.csv"
 
 OUTPUT_DIR = MAIN_DIR / f"results/intermediate_result"
 OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
