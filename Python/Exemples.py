@@ -90,19 +90,49 @@ def plot_user_hourly_profile(cells: list, stamps: list, user_id="", day=""):
 # 992,0 un exemple d'utilisateur pour montrer le nombre de connexions par heure et par cellule.
 
 ## Les exemple pour les comparaisons d'activity cells sont les suivants :
-# 1769,0 un exemple d'utilisateur avec une activity cell qui est la même que celle du dataset.
-# 13611,0 un exemple d'utilisateur avec une activity cell qui est différente de celle du dataset.
-# 326,0  un exemple d'utilisateur avec une activity cell selon le dataset mais qui n'est pas détectée par l'algorithme.
-# 43,0   un exemple d'utilisateur avec une activity cell selon l'algorithme mais qui n'est pas dans le dataset.
+# 1769,0  un exemple d'utilisateur avec une activity cell qui est la même que celle du dataset.
+# 13611,0 | 23189,0 | 23322,0 | 31483,0 un exemple d'utilisateur avec une activity cell qui est différente de celle du dataset.
+# 2391,0 | 3762,0 | 4054,0 | 6064,0 un exemple d'utilisateur avec une activity cell selon le dataset mais qui n'est pas détectée par l'algorithme.
+# 4786,0 | 1773,0 | 3821,0 | 5271,0 un exemple d'utilisateur avec une activity cell selon l'algorithme mais qui n'est pas dans le dataset.
 
-id_utilisateur,idice_folder = 43,0
+# Liste des exemples à afficher : chaque élément est (id_utilisateur, idice_folder).
+# On peut en mettre autant qu'on veut, y compris plusieurs par fichier : chaque fichier
+# du dataset ne sera lu qu'une seule fois (voir load_users ci-dessous).
+EXAMPLES = [
+    (31483, 0)
+]
 
-with open(files[idice_folder], mode='r', encoding='utf-8', newline='') as f:
-    reader = csv.reader(f, delimiter=';')
-    for line in reader:
-        if int(line[0]) == id_utilisateur:
-            utilisateur = line
-            break
+def load_users(examples):
+    """
+    Charge en une seule passe par fichier les lignes correspondant à une liste
+    d'exemples (id_utilisateur, idice_folder), au lieu de rouvrir/reparcourir
+    un fichier à chaque fois qu'un de ses utilisateurs est demandé.
+
+    examples : liste de tuples (id_utilisateur, idice_folder)
+    return   : dict {(id_utilisateur, idice_folder): ligne_csv}
+    """
+    from collections import defaultdict
+
+    needed_by_folder = defaultdict(set)
+    for uid, idx in examples:
+        needed_by_folder[idx].add(uid)
+
+    found = {}
+    for idx, remaining in needed_by_folder.items():
+        remaining = set(remaining)
+        with open(files[idx], mode='r', encoding='utf-8', newline='') as f:
+            reader = csv.reader(f, delimiter=';')
+            for line in reader:
+                uid = int(line[0])
+                if uid in remaining:
+                    found[(uid, idx)] = line
+                    remaining.discard(uid)
+                    if not remaining:
+                        break
+    return found
+
+id_utilisateur, idice_folder = EXAMPLES[0]
+utilisateur = load_users(EXAMPLES)[(id_utilisateur, idice_folder)]
 
 user_stamps = [int(ts) for ts in utilisateur[9::2]]
 
@@ -376,7 +406,11 @@ def plot_cells_10min(dic_cells_connections: dict, dic_cells_returns: dict,
 if __name__ == "__main__":
     #plot_presence_over_time(user_stamps,id_user_id=id_utilisateur, day=get_day(files[idice_folder]))
 
-    plot_user_hourly_profile(cells=user_cells, stamps=user_stamps, user_id=id_utilisateur, day=get_day(files[idice_folder]))
+    users_data = load_users(EXAMPLES)  # une seule passe par fichier, quel que soit le nombre d'exemples
+    for (uid, idx), line in users_data.items():
+        ex_cells = line[8::2]
+        ex_stamps = [int(ts) for ts in line[9::2]]
+        plot_user_hourly_profile(cells=ex_cells, stamps=ex_stamps, user_id=uid, day=get_day(files[idx]))
 
     #print("Enstrances and exits for user", id_utilisateur)
     #entrances, exits = entree_exit(utilisateur, 4*3600, 20*3600, merge_function=None)

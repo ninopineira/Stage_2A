@@ -30,7 +30,7 @@ data = np.load(INPUT_DIR / 'user_entropies_no_merge.npy', allow_pickle=True).ite
 day_data = defaultdict(lambda: {'records': [], 'entropy': [], 'relative_entropy': []})
 
 for id_user, values in data.items():
-    day, user_entropy, user_relative_entropy, num_record = values
+    day, user_entropy, user_relative_entropy, num_record, n_states = values
     day_str = str(day)
     if user_entropy != 0:
         day_data[day_str]['records'].append(num_record)

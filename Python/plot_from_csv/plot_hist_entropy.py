@@ -69,7 +69,11 @@ def compute_pmax(S, N):
         return H_p + (1 - p) * np.log2(N - 1) - S
 
     try:
-        return brentq(fano, 1e-10, 1 - 1e-10)
+        # Bracket on [1/N, 1]: the Fano function peaks at p = 1/N and decreases
+        # to 0 at p = 1, so the sign change is guaranteed there. Bracketing on
+        # [0, 1] fails whenever S > log2(N-1) - always for N = 2 - and returns
+        # NaN. See maximal_previsibility.compute_pmax.
+        return brentq(fano, 1.0 / N, 1 - 1e-10)
     except ValueError:
         return np.nan
 
@@ -158,8 +162,10 @@ if __name__ == "__main__":
 
     rows = []
     for id_user, values in raw.items():
-        day, user_entropy, user_relative_entropy, num_record = values
-        N = num_record
+        day, user_entropy, user_relative_entropy, num_record, n_states = values
+        # N is the number of distinct states visited, not the number of records
+        # (see compute_entropy_metrics above and transition_emtropy.py).
+        N = n_states
         S_unc = user_entropy
         S_rand = np.log2(N) if N > 1 else np.nan
         if S_unc != 0 :

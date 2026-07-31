@@ -71,7 +71,7 @@ def entropy_cells_by_user(user_cells, user_stamps):
         mat_transitions[c]['outside'] = 0
 
     for i in range(total_transitions):
-        if user_stamps[i + 1] - user_stamps[i] <= 4 * 3600 + 60:
+        if user_stamps[i + 1] - user_stamps[i] <= 4 * 3600 + 600:
             cell_from = user_cells[i]
             cell_to = user_cells[i + 1]
             mat_transitions[cell_from][cell_to] += 1
@@ -110,6 +110,14 @@ def plot_entropy_cells_by_user(dic_entropy):
     plt.show()
 
 def entropy_for_user(user_cells, user_stamps):
+    """Returns (entropy, relative entropy, number of distinct states).
+
+    The number of distinct states is the size of the alphabet the entropy is
+    computed over: the distinct cells visited, plus the 'outside' state when the
+    user actually left the area at least once. This is what must be used as N in
+    the Fano inequality (see maximal_previsibility.py) - using the number of
+    records instead inflates N, and therefore inflates Pmax.
+    """
     total_transitions = len(user_cells) - 1
     cells = []
     for c in user_cells:
@@ -118,12 +126,14 @@ def entropy_for_user(user_cells, user_stamps):
     cells.append('outside')
 
     if total_transitions <= 0:
-        return 0,0
+        return 0, 0, len(cells) - 1
 
     nb_gap = 0
     for i in range(total_transitions):
-        if user_stamps[i+1] - user_stamps[i] > 4 * 3600 + 60:
+        if user_stamps[i+1] - user_stamps[i] > 4 * 3600 + 600:  # 4 h 10 min
             nb_gap+=1
+
+    n_states = (len(cells) - 1) + (1 if nb_gap > 0 else 0)
 
     entropy_user= 0
 
@@ -139,7 +149,7 @@ def entropy_for_user(user_cells, user_stamps):
 
     entropy_user_rel = entropy_user / len(cells)
 
-    return (entropy_user, entropy_user_rel)
+    return (entropy_user, entropy_user_rel, n_states)
 
 
 def user_entropy_by_number_of_records(merge_function="no_merge"):
@@ -165,9 +175,9 @@ def user_entropy_by_number_of_records(merge_function="no_merge"):
 
                 user_stamps = [int(ts) for ts in line[9::2] if ts]
 
-                user_entropy, user_relative_entropy = entropy_for_user(user_cells, user_stamps)
+                user_entropy, user_relative_entropy, n_states = entropy_for_user(user_cells, user_stamps)
 
-                df[id_user] = (day,user_entropy, user_relative_entropy,len(user_cells))
+                df[id_user] = (day,user_entropy, user_relative_entropy,len(user_cells),n_states)
 
     np.save(OUTPUT_DIR / f"user_entropies_{merge_function}.npy", df)
 
@@ -200,7 +210,7 @@ if __name__ == "__main__":
 
     #id_utilisateur,idice_folder = 1277,0
     #user_cells,user_stamps = cells_and_stamps(id_utilisateur,idice_folder)
-    #entropy_user,entropy_relative = entropy_for_user(user_cells, user_stamps)
-    #print(entropy_user,entropy_relative)
+    #entropy_user,entropy_relative,n_states = entropy_for_user(user_cells, user_stamps)
+    #print(entropy_user,entropy_relative,n_states)
 
     user_entropy_by_number_of_records()
