@@ -10,7 +10,7 @@ import tqdm
 
 MAIN_DIR = Path(__file__).parent.parent.parent
 DATASET_DIR = MAIN_DIR / "Database/no_duplicate"
-CLASSIFICATION_PATH = MAIN_DIR / "results/intermediate_result/cell_classification_2.csv"
+CLASSIFICATION_PATH = MAIN_DIR / "results/intermediate_result/user_generalised_classification_by_user.csv"
 
 def merge_cell_id(cell : str):
     if cell.startswith(('B','D')):

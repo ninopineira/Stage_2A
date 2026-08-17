@@ -7,6 +7,31 @@ import collections
 from pathlib import Path
 from utils import HelperData, HelperVOMM
 
+
+def _pmax_fano(S, N):
+    """Fano maximum-predictability bound: solve S = H(p) + (1-p)*log2(N-1) for the
+    max p on [1/N, 1] (self-contained bisection, no scipy). Used by the causal
+    entropy features of MovementPredictorV2. Mirrors
+    Machin_learning/maximal_previsibility.compute_pmax."""
+    if N <= 1 or S <= 0:
+        return 1.0
+    log2N = math.log2(N)
+    if S >= log2N:
+        return 1.0 / N
+
+    def fano(p):
+        Hp = -p * math.log2(p) - (1 - p) * math.log2(1 - p)
+        return Hp + (1 - p) * math.log2(N - 1) - S
+
+    lo, hi = 1.0 / N, 1 - 1e-12   # fano(lo) >= 0, fano(hi) <= 0
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if fano(mid) > 0:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
 # ================ #
 # Naive predictors #
 # ================ #
@@ -1384,6 +1409,55 @@ class MovementPredictorV2:
         return H / H_max
 
     # ================================================================== #
+    #  GROUPE E — Entropie causale (calculée sur l'historique connu)     #
+    # ================================================================== #
+
+    def running_entropy(self, day_cells: list) -> float:
+        """S_unc so far: Shannon entropy (bits) of the visit-frequency distribution
+        of the cells seen up to now. Low = concentrated, high = spread out."""
+        n = len(day_cells)
+        if n == 0:
+            return 0.0
+        h = 0.0
+        for c in collections.Counter(day_cells).values():
+            p = c / n
+            h -= p * math.log2(p)
+        return h
+
+    def running_cond_entropy(self, day_cells: list) -> float:
+        """H(next | current) so far, from the order-1 transitions seen up to now
+        (bits). Low = routine transitions (A->B->A->B), high = erratic."""
+        if len(day_cells) < 2:
+            return 0.0
+        trans = collections.defaultdict(collections.Counter)
+        for a, b in zip(day_cells, day_cells[1:]):
+            trans[a][b] += 1
+        total = len(day_cells) - 1
+        s = 0.0
+        for counter in trans.values():
+            row = sum(counter.values())
+            p_ctx = row / total
+            h = 0.0
+            for cnt in counter.values():
+                p = cnt / row
+                h -= p * math.log2(p)
+            s += p_ctx * h
+        return s
+
+    def running_move_rate(self, day_cells: list) -> float:
+        """Fraction of steps so far that changed cell (causal move rate)."""
+        if len(day_cells) < 2:
+            return 0.0
+        moves = sum(1 for i in range(1, len(day_cells)) if day_cells[i] != day_cells[i - 1])
+        return moves / (len(day_cells) - 1)
+
+    def running_pmax(self, day_cells: list) -> float:
+        """Fano predictability from the running entropy and the number of distinct
+        cells seen so far — 'how predictable is this user up to now'. This is the
+        feature that most directly embodies 'the model modulates by the entropy'."""
+        return _pmax_fano(self.running_entropy(day_cells), len(set(day_cells)))
+
+    # ================================================================== #
     #  FEATURES ASSEMBLY                                                 #
     # ================================================================== #
 
@@ -1431,6 +1505,11 @@ class MovementPredictorV2:
             # -- Profil journalier --
             "n_complete_trips":                 self.n_complete_trips(),
             "out_of_anchor_entropy":            self.out_of_anchor_entropy(day_cells),
+            # -- Entropie causale (predictability so far) --
+            "running_entropy":                  self.running_entropy(day_cells),
+            "running_cond_entropy":             self.running_cond_entropy(day_cells),
+            "running_move_rate":                self.running_move_rate(day_cells),
+            "running_pmax":                     self.running_pmax(day_cells),
         }
 
 

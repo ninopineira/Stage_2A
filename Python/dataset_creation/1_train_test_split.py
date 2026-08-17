@@ -83,27 +83,20 @@ save_csv(data=test_data_complete , path=output_test)
 # FULL RANDOM SPLIT ON MERGED + CLASS 1 ONLY # (for movement prediction)
 # ========================================== #
 
-# file = MAIN_DIR / "Database/class_merge/class1_2g3g_merge.csv"
+file = MAIN_DIR / "Database/class_merge/class1_2g3g_merge.csv"
+with open(file, 'r', encoding='utf-8', newline='') as f:
+    csv_data = list(csv.reader(f, delimiter=";"))
 
-# with open(file, 'r', encoding='utf-8', newline='') as f:
-#     reader = csv.reader(f, delimiter=";")
-#     csv_data = list(reader)
-        
-# # Random shuffle of data + split 80% Train / 20% Test
-# random.shuffle(csv_data)
-# n = len(csv_data)
-# train_test_sep = int(n*0.8)
-# train_data = csv_data[:train_test_sep]
-# test_data = csv_data[train_test_sep:]
+# Fresh lists on purpose: do NOT reuse train_data_complete (that would mix in the
+# full-random split built above).
+random.shuffle(csv_data)
+split = int(len(csv_data) * 0.8)
 
-# train_data_complete += train_data
-# test_data_complete += test_data
-
-# output_train = OUTPUT_DIR / "class_merge/class1_train_random.csv"
-# output_test  = OUTPUT_DIR / "class_merge/class1_test_random.csv"
-# output_train.parent.mkdir(parents=True, exist_ok=True)
-# save_csv(data=train_data_complete, path=output_train)
-# save_csv(data=test_data_complete , path=output_test)
+output_train = OUTPUT_DIR / "class_merge/class1_train_random.csv"
+output_test  = OUTPUT_DIR / "class_merge/class1_test_random.csv"
+output_train.parent.mkdir(parents=True, exist_ok=True)
+save_csv(data=csv_data[:split], path=output_train)
+save_csv(data=csv_data[split:], path=output_test)
 
 
 

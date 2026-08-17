@@ -45,7 +45,7 @@ TEST_CSV  = FEATURE_DIR / "class1_test_random_features.csv"
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 PLOT_DIR.mkdir(parents=True, exist_ok=True)
 
-FEATURE_COLS = [
+BASE_COLS = [
     # -- Signaux de phase --
             "trip_phase",
             "is_at_anchor_cell",
@@ -66,6 +66,9 @@ FEATURE_COLS = [
             "n_complete_trips",
             "out_of_anchor_entropy"
 ]
+# Causal entropy features added to test the tutor's request ("integrate entropy").
+ENTROPY_COLS = ["running_entropy", "running_cond_entropy", "running_move_rate", "running_pmax"]
+FEATURE_COLS = BASE_COLS + ENTROPY_COLS
 LABEL_COL = "label"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -275,7 +278,40 @@ def plot_threshold_analysis(results: dict, y_true: np.ndarray):
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
+def compare_entropy_contribution():
+    """The headline experiment: train the same XGBoost with vs without the causal
+    entropy features (same data, same params) and print the metrics side by side.
+    This is the direct, quantified answer to 'does integrating the entropy help?'."""
+    from sklearn.metrics import roc_auc_score, average_precision_score, f1_score
+
+    tr = pd.read_csv(TRAIN_CSV, sep=";")
+    te = pd.read_csv(TEST_CSV, sep=";")
+
+    def run(cols, tag):
+        d_tr = tr.dropna(subset=cols + [LABEL_COL])
+        d_te = te.dropna(subset=cols + [LABEL_COL])
+        Xtr, ytr = d_tr[cols].values.astype(np.float32), d_tr[LABEL_COL].values.astype(np.int8)
+        Xte, yte = d_te[cols].values.astype(np.float32), d_te[LABEL_COL].values.astype(np.int8)
+        spw = (ytr == 0).sum() / max((ytr == 1).sum(), 1)
+        model = xgb.XGBClassifier(n_estimators=400, max_depth=6, learning_rate=0.03,
+                                  subsample=0.8, colsample_bytree=0.8, min_child_weight=5,
+                                  scale_pos_weight=spw, eval_metric="logloss",
+                                  random_state=42, n_jobs=-1)
+        model.fit(Xtr, ytr)
+        prob = model.predict_proba(Xte)[:, 1]
+        pred = (prob >= 0.5).astype(int)
+        print(f"  {tag:<18} AUC={roc_auc_score(yte, prob):.4f}  "
+              f"AP={average_precision_score(yte, prob):.4f}  "
+              f"F1={f1_score(yte, pred):.4f}   ({len(cols)} features)")
+
+    print("\n══ Does the causal entropy help the move/stay classifier? ══")
+    run(BASE_COLS, "without entropy")
+    run(FEATURE_COLS, "with entropy")
+    print()
+
+
 def main():
+    compare_entropy_contribution()
     print("\n══ Movement classifier — train & evaluate ══\n")
 
     # ── Chargement ────────────────────────────────────────────────────────────

@@ -37,6 +37,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import tqdm
 
 from models import NaiveMarkovChain
@@ -75,6 +76,13 @@ DAY_COLORS = {
     5: '#e377c2',  # Saturday
     6: '#bcbd22',  # Sunday
 }
+
+# 9 highlighted example users on a 3x3 grid: records level x mobility level.
+# Mobility = move rate (fraction of steps where the cell changes).
+REC_LABELS = ["few", "med", "many"]     # number of records
+MOB_LABELS = ["low", "med", "high"]     # mobility (move rate)
+EXAMPLE_COLORS = ['#e6194B', '#3cb44b', '#4363d8', '#f58231', '#911eb4',
+                  '#42d4f4', '#f032e6', '#bfef45', '#000000']
 
 
 def check_inputs():
@@ -147,8 +155,11 @@ def process_day(day, test_users, markov_models):
         cells = user[8::2]
         stamps = [int(ts) for ts in user[9::2]]
         n_states = len(set(cells))
+        moves = sum(1 for i in range(1, len(cells)) if cells[i] != cells[i - 1])
+        move_rate = moves / (len(cells) - 1)
 
-        rec = {"day": day, "id_user": user[0], "n_states": n_states}
+        rec = {"day": day, "id_user": user[0], "n_records": n_cells,
+               "n_states": n_states, "move_rate": move_rate}
         for k in ORDERS:
             s_cond = conditional_entropy_order_k(cells, stamps, k)
             rec[f"S_cond_{k}"] = s_cond
@@ -214,22 +225,92 @@ def plot_order_calendar(df, k):
     plt.show()
 
 
+def select_examples(sub_day):
+    """Pick 9 example users on a 3x3 grid: (few/med/many records) x (low/med/high
+    mobility = move rate). One representative per cell, the user closest to the
+    cell's centre. Index = rec_bin*3 + mob_bin. Returns 9 rows (None if a cell is
+    empty, e.g. few records + high mobility can be rare)."""
+    d = sub_day.dropna(subset=["n_records", "move_rate"]).copy()
+    if len(d) < 9:
+        return [None] * 9
+
+    r1, r2 = d["n_records"].quantile([1 / 3, 2 / 3])
+    m1, m2 = d["move_rate"].quantile([1 / 3, 2 / 3])
+    def tbin3(v, a, b):
+        return 0 if v <= a else (1 if v <= b else 2)
+    d["rec_bin"] = d["n_records"].apply(lambda v: tbin3(v, r1, r2))
+    d["mob_bin"] = d["move_rate"].apply(lambda v: tbin3(v, m1, m2))
+    rec_std = d["n_records"].std() + 1e-9
+    mob_std = d["move_rate"].std() + 1e-9
+
+    examples = []
+    for rb in range(3):
+        for mb in range(3):
+            grp = d[(d["rec_bin"] == rb) & (d["mob_bin"] == mb)]
+            if grp.empty:
+                examples.append(None)
+                continue
+            tr, tm = grp["n_records"].median(), grp["move_rate"].median()
+            dist = (((grp["n_records"] - tr) / rec_std) ** 2
+                    + ((grp["move_rate"] - tm) / mob_std) ** 2)
+            examples.append(grp.loc[dist.idxmin()])
+    return examples
+
+
 def plot_orders_parallel(df, day, tag):
-    """The 5 orders side by side for one day: 5 scatters, x=P^max_cond_k, y=ACC@1."""
+    """The 5 orders side by side for one day, plus 9 tracked example users drawn
+    opaque so the same user can be followed from order to order."""
     sub_day = df[df["day"] == day]
     weekday_idx = datetime.strptime(day, "%Y-%m-%d").weekday()
     color = DAY_COLORS[weekday_idx]
-    fig, axes = plt.subplots(1, len(ORDERS), figsize=(4.2 * len(ORDERS), 4.6),
+    examples = select_examples(sub_day)
+
+    # ── Print the 9 chosen example users ──────────────────────────────────────
+    print(f"\nExample users for {tag} ({day}, {DAY_NAMES[weekday_idx]}):")
+    print(f"  {'color':<9}{'category':<20}{'id':>12}{'records':>9}{'move_rate':>11}{'n_states':>9}")
+    for idx, row in enumerate(examples):
+        rb, mb = divmod(idx, 3)
+        cat = f"{REC_LABELS[rb]} rec / {MOB_LABELS[mb]} mob"
+        if row is None:
+            print(f"  {EXAMPLE_COLORS[idx]:<9}{cat:<20}{'(none)':>12}")
+            continue
+        print(f"  {EXAMPLE_COLORS[idx]:<9}{cat:<20}{row['id_user']:>12}"
+              f"{int(row['n_records']):>9}{row['move_rate']:>11.2f}{int(row['n_states']):>9}")
+
+    fig, axes = plt.subplots(1, len(ORDERS), figsize=(4.2 * len(ORDERS), 5.4),
                              sharex=True, sharey=True)
     for ax, k in zip(axes, ORDERS):
         sub = sub_day.dropna(subset=[f"pmax_cond_{k}", f"acc_{k}"])
         _panel_scatter(ax, sub, k, color)
+        # overlay the 9 tracked users (opaque, black edge)
+        for idx, row in enumerate(examples):
+            if row is None:
+                continue
+            xk, yk = row[f"pmax_cond_{k}"], row[f"acc_{k}"]
+            if pd.isna(xk) or pd.isna(yk):
+                continue
+            ax.scatter(xk, yk, s=130, color=EXAMPLE_COLORS[idx],
+                       edgecolors="black", linewidths=0.8, zorder=5)
         ax.set_title(f"order {k}", fontsize=11, fontweight="bold")
         ax.set_xlabel(f"$P^{{max}}_{{cond}}$")
     axes[0].set_ylabel("Markov ACC@1")
+
+    handles = []
+    for idx, row in enumerate(examples):
+        if row is None:
+            continue
+        rb, mb = divmod(idx, 3)
+        handles.append(Line2D([0], [0], marker="o", color="w",
+                              markerfacecolor=EXAMPLE_COLORS[idx], markeredgecolor="black",
+                              markersize=9,
+                              label=f"{REC_LABELS[rb]} rec / {MOB_LABELS[mb]} mob"))
+    if handles:
+        fig.legend(handles=handles, loc="lower center", ncol=len(handles),
+                   fontsize=8, frameon=False)
+
     wd = DAY_NAMES[weekday_idx]
-    fig.suptitle(f"{tag}: {day} ({wd})", fontsize=13)
-    fig.tight_layout()
+    fig.suptitle(f"{tag}: {day} ({wd}) — 9 tracked users", fontsize=13)
+    fig.tight_layout(rect=[0, 0.07, 1, 0.96])
     out = PLOT_DIR / f"predictability_scatter_parallel_{tag}.png"
     fig.savefig(out, dpi=130)
     print(f"Saved -> {out}")

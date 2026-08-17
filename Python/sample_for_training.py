@@ -22,7 +22,7 @@ OUTPUT_DIR = MAIN_DIR / "Database/sample_for_training"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 N_DAYS       = 15
-N_USERS      = 500
+N_USERS      = 2000
 MIN_RECORDS  = 10
 MAX_RECORDS  = 200
 GAP_LIMIT    = 4 * 3600 + 60  # 4h (+60s buffer, same threshold used elsewhere in the project)
