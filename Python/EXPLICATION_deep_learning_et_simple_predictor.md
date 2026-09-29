@@ -5,11 +5,16 @@ propose des pistes pour la suite.
 
 Les deux dossiers attaquent le **même objectif que le travail Markov** de
 `Machin_learning/` (prédire la prochaine station), mais avec des modèles beaucoup
-plus aboutis, et sur une variante du dataset : `Database/cd_142_dataset/…`
-(sous-dossiers `no_duplicate`, `no_duplicate_merge_2g3g`,
-`no_duplicate_max_512_records`, `class_merge…`). Format de ligne identique au reste
+plus aboutis, et sur les variantes du dataset : `Database/no_duplicate`,
+`Database/no_duplicate_merge_2g3g`, `Database/no_duplicate_max_512_records`,
+`Database/class_merge`. Format de ligne identique au reste
 du projet : `line[8::2]` = cellules, `line[9::2]` = timestamps, `line[7]` = nombre
 de records, `line[5]`/`line[6]` = home/activity cell.
+
+> Note : ces dossiers proviennent du dépôt d'un ancien collaborateur, organisé par zone
+> géographique (`Database/cd_142_dataset/…`). Une seule zone ayant été conservée,
+> l'arborescence a été aplatie ; d'anciens chemins peuvent subsister dans des
+> commentaires. Voir [RESUME_PROJET.md](../RESUME_PROJET.md) §2 et [CLAUDE.md](../CLAUDE.md).
 
 ---
 
@@ -66,7 +71,8 @@ Boucle d'entraînement (`~27 min/epoch`) :
   `N_EPOCHS=3`. Sauvegarde dans `results/predictions/deep_learning/checkpoints/`.
 
 ### `loss.py`, `test.py`
-**Fichiers vides** (placeholders non implémentés).
+**Supprimés.** C'étaient deux fichiers vides : la loss est définie directement dans
+`train.py` (`nn.CrossEntropyLoss`), et l'évaluation finale du Transformer reste à écrire.
 
 ---
 
@@ -85,8 +91,8 @@ Boîte à outils partagée :
   nombre de suffixes uniques) et les comptes d'unigrammes (`prepare_unigram_counts`).
 - **`HelperData`** : mapping utilisateur → (jour, ligne), sauvegardes JSON/CSV.
 - **`Metrics`** : `top_k_accuracy` (ACC@k), `map_k` (MAP@k), `log_likelihood`,
-  `perplexity`, `mean_reciprocal_rank`. ⚠️ `top_k_accuracy` et `map_k` sont **définies
-  deux fois** chacune (la 2ᵉ écrase la 1ʳᵉ) — reliquat de deux versions.
+  `perplexity`, `mean_reciprocal_rank`. *(Ces deux premières étaient définies en double,
+  la 2ᵉ écrasant la 1ʳᵉ ; les doublons ont été supprimés.)*
 - `MobilityDataset` (torch) pour le modèle de time-weight.
 
 ### `models.py`
@@ -95,11 +101,16 @@ Le cœur des modèles de prédiction :
   suffixes les plus fréquents (probabilités pré-triées). Repli : prédire la dernière
   cellule (`last`).
 - **`NaiveMarkovChainWithTimeWeight`** : idem, mais pondère par un poids horaire.
-- **`VOMM`** : *Variable Order Markov Model* avec **back-off Kneser-Ney** (discount).
+- **`VOMM`** : *Variable Order Markov Model* avec **back-off par *discounting* absolu** (le
+  principe de base de Kneser-Ney, sans ses comptes de continuation).
   `_recursive_prob` combine la probabilité au plus long contexte disponible avec un
-  repli récursif vers des contextes plus courts, jusqu'à l'unigramme. `predict_next`
-  agrège les candidats de tous les ordres et les classe (avec cache).
-- **`VOMM_V4`** : variante (back-off jusqu'à l'ordre 0, scoring en log-space + softmax).
+  repli récursif vers des contextes plus courts, **jusqu'à l'ordre 0** (l'unigramme).
+  `predict_next` agrège les candidats de tous les ordres et les classe (avec cache).
+  ⚠️ La récursion s'arrêtait auparavant à l'ordre 1, ce qui court-circuitait l'étage
+  Markov d'ordre 1 (`train_data[1]` n'était jamais lu pour le scoring). Corrigé : les
+  métriques VOMM antérieures à cette correction sont à relancer.
+- **`VOMM_V4`** : variante (scoring en log-space + softmax) ; elle avait déjà la bonne
+  borne de récursion, qui a servi de référence pour corriger `VOMM` et `VOMM_V5`.
 - **`VOMM_V5`** : la version la plus riche. Ajoute :
   - `temporal_boost` : bonus multiplicatif si la cellule candidate est le **home**
     la nuit ou l'**activity** en journée (transitions douces aux bords de plage) ;
@@ -107,10 +118,10 @@ Le cœur des modèles de prédiction :
     **concentration** (entropie) et le **momentum** récent (nouveauté des dernières
     cellules).
 - **`MovementPredictor` / `MovementPredictorV2`** : extracteurs de features pour le
-  sous-projet (C) — voir plus bas. ⚠️ `MovementPredictor.predict_movement` référence
-  des features (`current_streak`, `is_home_now`…) qui ne sont **pas** produites par
-  son propre `extract_features` : cette méthode heuristique est obsolète, remplacée
-  par l'entraînement XGBoost.
+  sous-projet (C) — voir plus bas. *(Une méthode heuristique `predict_movement`
+  référençait des features `current_streak`, `is_home_now`… qui ne sont plus produites
+  par `extract_features`, et l'appelait avec 4 arguments au lieu de 2 : elle levait un
+  `TypeError` et a été supprimée. La décision move/stay est apprise par XGBoost / LSTM.)*
 
 ### `user_mapping.py`
 Génère `user_mapping.json` : `user_id` → `[jour, numéro_de_ligne]`, pour retrouver
@@ -131,10 +142,11 @@ balaie une liste de `discount`. De nombreux blocs (random, merge 2g3g, par class
 semaine/week-end) sont prêts mais commentés.
 
 ### `VOMM_single_prediction.py`
-Démo : prédire la suite d'une séquence codée en dur. ⚠️ **Obsolète** — il appelle
-`VOMM(counts=…, context_totals=…, unique_followers=…)` et
-`helper.prepare_ngrams(computed_ngrams_filepath=…)`, signatures qui **ne
-correspondent plus** à `models.py`/`utils.py` actuels. À réécrire ou supprimer.
+Démo : prédire la suite d'une séquence codée en dur, et afficher les 10 meilleurs
+candidats avec leur probabilité (en signalant celui qui est identique à la dernière
+cellule du contexte). *(Le script utilisait auparavant une API obsolète —
+`VOMM(counts=…, context_totals=…)`, `prepare_ngrams(computed_ngrams_filepath=…)` — et
+ne tournait plus ; il a été réécrit contre l'API actuelle, avec contrôle des prérequis.)*
 
 ### `PLOT_VOMM_metrics_by_discount.py`
 Trace, à partir d'un JSON d'étude, l'évolution de ACC@{1,3,5,10} et du log-loss moyen
@@ -153,8 +165,8 @@ l'information horaire.
 ## 2.C — Prédiction binaire de mouvement (move / stay)
 
 Sous-problème distinct : à chaque instant, l'utilisateur **va-t-il changer de
-cellule** au prochain record (1) ou rester (0) ? Utile car ~43 % des records
-consécutifs sont dans la même cellule.
+cellule** au prochain record (1) ou rester (0) ? Utile car 72 % des records
+consécutifs sont dans la même cellule (`no_duplicate`, 15 jours).
 
 ### `MOVEMENT_PREDICTION_extract_features.py` et `…_extract_features_V2.py`
 Parcourent le CSV et produisent, pour chaque point de prédiction, un vecteur de
@@ -200,26 +212,33 @@ trajectoires individuelles.
 # 3. Vue d'ensemble et articulation avec le travail Markov précédent
 
 - Le **VOMM** de `simple_predictor` est une **généralisation** du Markov séquentiel de
-  `Machin_learning/` : ordre variable + back-off Kneser-Ney + boosts temporels. Le
+  `Machin_learning/` : ordre variable + back-off par *discounting* absolu + boosts temporels. Le
   travail Markov d'ordre 1 en est, de fait, un cas particulier.
 - Le **Transformer** de `deep_learning` est l'approche la plus lourde (contexte long,
   attention, position apprise).
 - La **prédiction de mouvement** (move/stay) est un problème binaire séparé, qui peut
   servir de **première étape** avant de prédire *où*.
-- ⚠️ Attention aux **chemins de dataset** : ces dossiers lisent
-  `Database/cd_142_dataset/…`, alors que `Machin_learning/` lit `Database/no_duplicate`.
-  Il faut vérifier qu'on compare les modèles sur **le même split** avant de conclure.
+- ⚠️ Attention aux **populations comparées** : tous ces dossiers lisent bien
+  `Database/no_duplicate` (et ses variantes), mais pas au même endroit du pipeline —
+  `Machin_learning/` évalue par utilisateur sur le dataset complet **avec** les
+  répétitions consécutives, alors que les pipelines VOMM évaluent sur un split de test
+  **dédupliqué**. Il faut vérifier qu'on compare les modèles sur **le même split** avant
+  de conclure ; `COMPARE_markov_vs_vomm.py` est le script qui le garantit.
 
-## Points d'attention / dette technique repérée
-- `deep_learning/loss.py` et `test.py` : **vides**.
-- `simple_predictor/VOMM_single_prediction.py` : **API obsolète**, ne tourne plus.
-- `MovementPredictor.predict_movement` : **incohérent** avec son `extract_features`
-  (features inexistantes) — méthode heuristique abandonnée.
-- `utils.Metrics` : `top_k_accuracy` et `map_k` **définies deux fois** (la 2ᵉ gagne).
-- `N_CELLS = 369` est **codé en dur** dans `train.py` : à synchroniser avec le
-  `cell_map` réellement utilisé.
+## Points d'attention / dette technique
+
+**Corrigé depuis :** doublons de `top_k_accuracy` / `map_k` et de
+`convert_lat_lon_distance_to_meter` dans `utils.py` ; `predict_movement` supprimée ;
+`VOMM_single_prediction.py` réécrit ; `N_CELLS` lu depuis `cell_map_start_1.json` au lieu
+d'être codé en dur ; `loss.py` et `test.py` (vides) supprimés ; borne de récursion du
+back-off VOMM alignée sur l'ordre 0.
+
+**Restant :**
+- Pas de procédure d'évaluation finale du Transformer (métriques de test comparables au VOMM).
 - Beaucoup de configurations de run sont commentées dans les pipelines : l'historique
   des expériences n'est pas rejouable en un clic.
+- Trois marges de « gap » différentes (4h+30s / 4h+60s / 4h+10min) selon les dossiers.
+- `utils.py` existe en trois copies (racine, `important_cells_work/`, `simple_predictor/`).
 
 ---
 
@@ -236,7 +255,7 @@ trajectoires individuelles.
    pleinement, récupérer son ACC@1 et le comparer au VOMM, dira si le coût du deep
    learning est justifié sur seulement 2 semaines de données.
 
-3. **Prédicteur en deux étapes.** Étant donné les ~43 % de self-transitions, un étage
+3. **Prédicteur en deux étapes.** Étant donné les 72 % de self-transitions, un étage
    1 « bouge / bouge pas » (le classifieur move/stay déjà écrit) suivi d'un étage 2
    « où ? » (VOMM, seulement quand un mouvement est prédit) pourrait nettement
    améliorer l'ACC@1 par rapport à un VOMM seul.
@@ -245,9 +264,9 @@ trajectoires individuelles.
    ne mesure encore leur apport face au VOMM nu. À brancher dans le pipeline
    d'évaluation.
 
-5. **Nettoyage.** Supprimer / réécrire le code mort listé plus haut (fichiers vides,
-   `VOMM_single_prediction`, `predict_movement`, doublons de métriques) avant d'aller
-   plus loin, pour ne pas bâtir sur des fondations ambiguës.
+5. **Nettoyage.** ✅ Fait : fichiers vides supprimés, `VOMM_single_prediction` réécrit,
+   `predict_movement` supprimée, doublons de métriques éliminés, `N_CELLS` dérivé du
+   mapping. Reste à relancer les métriques VOMM après la correction du back-off.
 
 6. **Un seul dataset de référence.** Fixer une bonne fois le split train/test (et la
    variante `cd_142_dataset` vs `no_duplicate`) partagé par tous les modèles, sinon

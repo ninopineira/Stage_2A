@@ -16,18 +16,14 @@ def merge_cell_id(cell : str):
 
 def convert_lat_lon_distance_to_meter(lat1 : float, lat2 : float, lon1 : float, lon2 : float) -> float :
     """
-    Returns the distance between 2 points at the surface of the Earth in meters
-    """    
+    Returns the distance between 2 points at the surface of the Earth in meters.
+
+    Same signature as Python/utils.py and Python/important_cells_work/utils.py, so the
+    three copies of this helper stay interchangeable.
+    """
     point1 = (lat1, lon1)
     point2 = (lat2, lon2)
 
-    distance = geodesic(point1, point2).meters
-    return distance
-
-def convert_lat_lon_distance_to_meter(point1 : tuple[float], point2 : tuple[float]) -> float :
-    """
-    Returns the distance between 2 points at the surface of the Earth in meters
-    """    
     distance = geodesic(point1, point2).meters
     return distance
 
@@ -135,32 +131,13 @@ class Metrics:
     def __init__(self):
         pass
     
-    # 2 Versions of top_k_acc V1 if only need top_k in main script, save some space, V2 if you need preds_list
-    def top_k_accuracy(self, top_k : list, true_next : list, k=1):
-        """
-        top_k :  [ [(pred_cell,prob), ...], ... ] 
-        true_next : [ true_cell,... ]
-        """
-        
-        correct = 0
-        total = len(top_k)
-        
-        assert len(top_k) == len(true_next), "top_k and true_next must have the same length"
-        
-        print(f"Computing ACC@{k} for {len(top_k)} predictions")
-        t0 = time.time()
-        for top,t_next in zip(top_k, true_next):
-            for i in range(min(k,len(top))):
-                if top[i][0] == t_next:
-                    correct += 1
-                    break
-        print(f"Computed ACC@{k} in {time.time()-t0:.2f}s")
-        
-        return correct / total if total > 0 else 0
-        
     def top_k_accuracy(self, preds_list : list, true_next : list, k=1):
         """
-        preds_list : [ [(pred_cell,prob), ...], ... ] -> Liste complète non découpée
+        ACC@k : proportion of prediction points where the true cell is among the k
+        best-ranked candidates.
+
+        preds_list : [ [(pred_cell,prob), ...], ... ] -> ranked predictions, full list
+                     (already truncated to the top k, or not: only the first k are read)
         true_next  : [ true_cell,... ]
         """
         correct = 0
@@ -181,27 +158,12 @@ class Metrics:
         print(f"Computed ACC@{k} in {time.time()-t0:.2f}s")
         
         return correct / total if total > 0 else 0
-     
-     
-    # 2 Versions of map_k V1 if only need top_k in main script, save some space, V2 if you need preds_list
-    def map_k(self, top_k : list, true_next : list, k=1):
-        total = len(top_k)
-        score = 0.0
 
-        assert total == len(true_next)
-
-        print(f"Computing MAP@{k} for {len(top_k)} predictions")
-        t0 = time.time()
-        for top, t_next in zip(top_k, true_next):
-            for i in range(min(k,len(top))):
-                if top[i][0] == t_next:
-                    score += 1.0 / (i + 1)
-                    break
-        print(f"Computed MAP@{k} in {time.time()-t0:.2f}s")
-
-        return score / total if total > 0 else 0
-    
     def map_k(self, preds_list : list, true_next : list, k=1):
+        """
+        MAP@k : mean of 1/rank of the true cell when it appears in the k best-ranked
+        candidates, 0 otherwise. Same input format as top_k_accuracy.
+        """
         total = len(preds_list)
         score = 0.0
 

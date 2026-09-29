@@ -65,26 +65,24 @@ def separate_data_by_letter_code(dataframe : pd.DataFrame, column_name : str | N
                                     and values are the fitered dataframe depending on the letter code
     """
 
-    letters = dataframe[column_name].tolist()
-    letters = list(set(letters)) # [nan, 'CETR', 'NUDM', nan, 'CENU', 'CEBU', 'CEZB', 'BUNE', 'NUDU', 'NUNU']
-    
-    # I need to remove the nan values because it causes problem and I replace it with a true str : "UNKNOWN"
-    i = 0
-    while i<len(letters) and isinstance(letters[i],str):
-        i+=1
-    letters[i] = "UNKNOWN"
-    
+    # Only the real 4-letter codes are kept, and the missing values are gathered under a
+    # true string key "UNKNOWN" (NaN cannot be used as a dict key here: it breaks the
+    # lookups downstream). "UNKNOWN" is only added if the column actually has NaNs.
+    letters = sorted({code for code in dataframe[column_name].tolist() if isinstance(code, str)})
+    if dataframe[column_name].isna().any():
+        letters.append("UNKNOWN")
+
     letters_seperation_dict = dict.fromkeys(letters)
 
     # Extracting the data depending on their "letters" column to see if there is a pattern with the rest of the line
     for key in list(letters_seperation_dict.keys()):
-        
+
         if key == "UNKNOWN":
-            letters_seperation_dict[key] = {"df" : dataframe[dataframe["letters"].isna()]}
-            
+            letters_seperation_dict[key] = {"df" : dataframe[dataframe[column_name].isna()]}
+
         else:
-            letters_seperation_dict[key] = {"df" : dataframe[dataframe["letters"] == key]}
-    
+            letters_seperation_dict[key] = {"df" : dataframe[dataframe[column_name] == key]}
+
     return letters_seperation_dict
 
 def count_null_values(data) :

@@ -243,10 +243,11 @@ absolue que le modèle ne pourrait pas dépasser.
 
 ## Mesure de contexte (constatée, non exploitée pour l'instant)
 
-Dans `no_duplicate`, **43,6 % des enregistrements consécutifs sont dans la même
-cellule** (le nettoyage « no_duplicate » ne supprime pas les répétitions
-consécutives). Conséquence mesurée sur le 2014-03-12 de l'échantillon
-(42 133 transitions, accuracy poolée) :
+Sur l'échantillon `sample_for_training` (forte entropie), **43,6 % des enregistrements
+consécutifs sont dans la même cellule** (le nettoyage « no_duplicate » ne supprime pas
+les répétitions consécutives). ⚠️ Ce chiffre n'est **pas** représentatif : sur
+l'ensemble de `no_duplicate` (15 jours), la vraie valeur est **72,0 %**. Conséquence
+mesurée sur le 2014-03-12 de l'échantillon (42 133 transitions, accuracy poolée) :
 
 | stratégie | accuracy |
 |---|---|

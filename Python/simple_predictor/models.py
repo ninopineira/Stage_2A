@@ -185,36 +185,41 @@ class VOMM:
 
     def _recursive_prob(self, context, target, order):
         """
-        inputs : 
+        inputs :
         - context   : list of strings
         - target    : the target cell which one must calculate its score to be the next cell after the given context
-        - order     : length of the context considered, first equal to context length and goes down recursively until
-        reaching 1 where TODO I need to find what to output or maybe not
+        - order     : length of the context considered, first equal to context length and goes down recursively
+        until reaching 0 (the unigram), which is the base case of the recursion.
+
+        The recursion stops at order 0, NOT at order 1: order 1 is the real first-order Markov
+        step (train_data[1] = counts of "one cell -> next cell"), which must be discounted and
+        backed off like any other order. Stopping at order 1 would skip that level entirely and
+        jump straight from order 2 to the context-free unigram.
         """
-        if order > self.max_order: 
+        if order > self.max_order:
             order = self.max_order
-        
-        if order == 1: # unigram
-            return self.unigram_counts[target] / self.total_unigrams if self.total_unigrams > 0 else 0
-        
+
+        if order == 0: # unigram : base case, no context left
+            return self.unigram_counts.get(target, 0) / self.total_unigrams if self.total_unigrams > 0 else 0
+
         context = context[-order:] # Extracting the end of the sequence (end of the sequence length = order)
-                
+
         if context not in self.train_data[order]:
             return self._recursive_prob(context[1:], target, order-1)
-        
+
         count_hw = self.train_data[order][context][target] if target in self.train_data[order][context] else 0 # If the pair does not exists probability is 0
         count_h = self.context_totals[order][context]
-        
+
         # discounted probability
         first_term = max(count_hw - self.discount, 0) / count_h
-        
+
         # lambda (backoff weight)
         num_unique = self.unique_followers[order][context]
         lambda_h = (self.discount * num_unique) / count_h
-        
-        # backoff computed with less context (recursively until context of size 1 is reached)
-        backoff = self._recursive_prob(context[1:], target, order-1) 
-        
+
+        # backoff computed with less context (recursively until context of size 0 is reached)
+        backoff = self._recursive_prob(context[1:], target, order-1)
+
         return first_term + lambda_h * backoff # Weighted sum of the probabilities
 
     def predict_next(self, context, candidates = None):
@@ -299,14 +304,14 @@ class VOMM_V4:
         inputs : 
         - context   : list of strings
         - target    : the target cell which one must calculate its score to be the next cell after the given context
-        - order     : length of the context considered, first equal to context length and goes down recursively until
-        reaching 1 where TODO I need to find what to output or maybe not
+        - order     : length of the context considered, first equal to context length and goes down recursively
+        until reaching 0 (the unigram), which is the base case of the recursion.
         """
         if order > self.max_order:
             order = self.max_order
-        
-        if order == 0: # unigram
-            return self.unigram_counts[target] / self.total_unigrams if self.total_unigrams > 0 else 0
+
+        if order == 0: # unigram : base case, no context left
+            return self.unigram_counts.get(target, 0) / self.total_unigrams if self.total_unigrams > 0 else 0
         
         context = context[-order:] # Extracting the end of the sequence (end of the sequence length = order)
                 
@@ -555,36 +560,39 @@ class VOMM_V5:
 
     def _recursive_prob(self, context, target, order):
         """
-        inputs : 
+        inputs :
         - context   : list of strings
         - target    : the target cell which one must calculate its score to be the next cell after the given context
-        - order     : length of the context considered, first equal to context length and goes down recursively until
-        reaching 1 where TODO I need to find what to output or maybe not
+        - order     : length of the context considered, first equal to context length and goes down recursively
+        until reaching 0 (the unigram), which is the base case of the recursion.
+
+        Same convention as VOMM and VOMM_V4: the recursion stops at order 0, so that order 1
+        (train_data[1], the real first-order Markov step) is actually used in the backoff chain.
         """
         if order > self.max_order:
             order = self.max_order
-        
-        if order == 1: # unigram
-            return self.unigram_counts[target] / self.total_unigrams if self.total_unigrams > 0 else 0
-        
+
+        if order == 0: # unigram : base case, no context left
+            return self.unigram_counts.get(target, 0) / self.total_unigrams if self.total_unigrams > 0 else 0
+
         context = context[-order:] # Extracting the end of the sequence (end of the sequence length = order)
-                
+
         if context not in self.train_data[order]:
             return self._recursive_prob(context[1:], target, order-1)
-        
+
         count_hw = self.train_data[order][context][target] if target in self.train_data[order][context] else 0 # If the pair does not exists probability is 0
         count_h = self.context_totals[order][context]
-        
+
         # discounted probability
         first_term = max(count_hw - self.discount, 0) / count_h
-        
+
         # lambda (backoff weight)
         num_unique = self.unique_followers[order][context]
         lambda_h = (self.discount * num_unique) / count_h
-        
-        # backoff computed with less context (recursively until context of size 1 is reached)
-        backoff = self._recursive_prob(context[1:], target, order-1) 
-        
+
+        # backoff computed with less context (recursively until context of size 0 is reached)
+        backoff = self._recursive_prob(context[1:], target, order-1)
+
         return first_term + lambda_h * backoff # Weighted sum of the probabilities
 
     def predict_next_v5(self, context, timestamp, home_cell, activity_cell,
@@ -1011,88 +1019,19 @@ class MovementPredictor:
             # -- Profil de mobilité --
             "out_of_anchor_entropy":            self.out_of_anchor_entropy(day_cells),
         }
-    
-    
+
+
     # ------------------------------------------------------------------ #
     #  Score                                                             #
     # ------------------------------------------------------------------ #
-    def predict_movement(
-        self, day_cells: list, day_timestamps: list,
-        home_cell: str | None = None, activity_cell: str | None = None,
-        threshold: float = 0.5
-    ) -> tuple[int, float]:
-        """
-        Prédit si l'utilisateur va bouger (1) ou rester (0).
-        Retourne (décision, score_mobilité).
-
-        Le score est une combinaison heuristique interprétable des features,
-        à remplacer idéalement par un modèle appris (LogReg, GBM) entraîné
-        sur (features, label_mouvement_suivant).
-
-        Score ∈ [0, 1] : proche de 1 = très probablement en mouvement.
-        """
-        if len(day_cells) < 2:
-            return 0, 0.0
-
-        f = self.extract_features(day_cells, day_timestamps, home_cell, activity_cell)
-
-        # Facteurs favorisant l'immobilité (score → 0)
-        # -----------------------------------------------
-        # Streak long → très peu probable de bouger
-        streak_factor = math.exp(-f["current_streak"] / 5.0)
-
-        # Longue durée sans bouger → immobilité
-        duration_factor = math.exp(-f["current_cell_duration_h"] / 2.0)
-
-        # Utilisateur très concentré sur peu de cellules ET pas en momentum
-        concentration_factor = (1.0 - f["concentration"]) * (1.0 - f["momentum"] * 0.5)
-
-        # Facteurs favorisant le mouvement (score → 1)
-        # -----------------------------------------------
-        # Variabilité récente élevée → en train de bouger
-        variability_signal = f["recent_variability"]
-
-        # Momentum actif
-        momentum_signal = f["momentum"]
-
-        # Inadéquation home/activity avec l'heure → risque de départ
-        if f["is_home_now"]:
-            # Si on est chez soi mais pas à l'heure d'y être → va partir
-            mismatch = 1.0 - f["home_hour_match"]
-        elif f["is_activity_now"]:
-            mismatch = 1.0 - f["activity_hour_match"]
-        else:
-            # Cellule inconnue → neutre
-            mismatch = 0.3
-
-        # Rythme de transitions : si l'utilisateur bouge souvent ET le délai
-        # depuis la dernière transition est proche de son rythme habituel
-        rhythm = f["inter_transition_rhythm_h"]
-        time_since = f["time_since_last_trans_h"]
-        if rhythm > 0:
-            # Ratio temps_écoulé / rythme_médian : proche de 1 → "c'est l'heure de bouger"
-            rhythm_signal = min(time_since / rhythm, 2.0) / 2.0
-        else:
-            rhythm_signal = 0.0
-
-        # --- Combinaison ---
-        # Immobilité : moyenne géométrique des facteurs d'ancrage
-        immobility = (streak_factor * duration_factor * (1.0 - concentration_factor)) ** (1 / 3)
-
-        # Mobilité : moyenne pondérée des signaux de mouvement
-        mobility = (
-            0.30 * variability_signal +
-            0.25 * momentum_signal +
-            0.25 * mismatch +
-            0.20 * rhythm_signal
-        )
-
-        # Score final : balance entre mobilité et ancrage
-        # immobility agit comme frein, pas comme signal dominant
-        score = mobility * (1.0 - 0.5 * immobility)
-        score = max(0.0, min(1.0, score))
-
-        return int(score >= threshold), score
+    # NOTE : une méthode heuristique `predict_movement` existait ici. Elle combinait
+    # à la main des features (current_streak, is_home_now, momentum, concentration,
+    # recent_variability, inter_transition_rhythm_h...) issues d'une ANCIENNE version
+    # de extract_features et qui ne sont plus produites : elle levait un TypeError dès
+    # l'appel (elle passait 4 arguments à extract_features qui n'en prend que 2).
+    # Elle a été supprimée : la décision move/stay est apprise par XGBoost /
+    # RandomForest / LSTM dans les scripts MOVEMENT_PREDICTION_fit_features*.py et
+    # MOVEMENT_PREDICTION_train_lstm.py, à partir du vecteur rendu par extract_features.
 
 
 class MovementPredictorV2:

@@ -1,10 +1,12 @@
 # Compares an order-1 Markov chain (the core of the Machin_learning/ approach) to
-# the VOMM (variable-order Markov + Kneser-Ney backoff) on EXACTLY the same test
-# set and the same metrics, so the numbers are directly comparable.
+# the VOMM (variable-order Markov + absolute-discounting back-off) on EXACTLY the
+# same DEDUPLICATED test set and the same metrics, so the numbers are directly comparable.
+# (The same comparison on the no_duplicate test, with the "stay" baseline, is made by
+# PREDICTABILITY_vs_accuracy.py -> markov_vs_vomm_no_duplicate.png.)
 #
 # Why this and not the Machin_learning/ numbers directly:
 #   - Machin_learning/markov_sequential_prediction.py runs per-user on
-#     Database/no_duplicate, which keeps consecutive self-transitions (~43% of
+#     Database/no_duplicate, which keeps consecutive self-transitions (72% of
 #     records) -> its accuracy is inflated by the trivial "stay" case and is not
 #     comparable to the VOMM numbers.
 #   - Here both models are trained on the SAME train n-grams and evaluated on the
@@ -123,10 +125,10 @@ def plot_comparison(results):
     plt.xticks(list(x), [f"ACC@{k}" for k in TOP_KS])
     plt.ylabel("Accuracy")
     plt.ylim(0, 1)
-    plt.title("Next-cell prediction: order-1 Markov vs VOMM\n(same test set, same metric)")
+    plt.title("Next-cell prediction: order-1 Markov vs VOMM\n(same deduplicated test set, same metric)")
     plt.legend()
     plt.tight_layout()
-    out = PLOT_DIR / "markov_vs_vomm.png"
+    out = PLOT_DIR / "markov_vs_vomm_dedup.png"
     plt.savefig(out, dpi=150)
     print(f"Saved plot -> {out}")
     plt.show()
@@ -149,7 +151,7 @@ if __name__ == "__main__":
     results["meta"] = {"n_users": n_seen, "n_predictions": len(true_next_list),
                        "max_context": MAX_CONTEXT, "vomm_discount": VOMM_DISCOUNT}
 
-    out_json = OUTPUT_DIR / "markov_vs_vomm.json"
+    out_json = OUTPUT_DIR / "markov_vs_vomm_dedup.json"
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
 

@@ -392,7 +392,12 @@ for i, m1 in enumerate(METHODS):
         key = f"cross_{SHORT[m1]}_vs_{SHORT[m2]}"
         if key in sheets:
             t = sheets[key]
-            rate = t["agree"].sum() / t["total_users"].sum()
+            # Agreement among the user-days where AT LEAST ONE of the two methods finds an
+            # activity cell. Dividing by all users (as before) counted the ~60 % of users
+            # for whom neither method finds anything as disagreements.
+            both = t["agree"] + t["different"]
+            union = t[f"total_with_{SHORT[m1]}"] + t[f"total_with_{SHORT[m2]}"] - both
+            rate = t["agree"].sum() / union.sum()
             matrix[i, j] = rate
             matrix[j, i] = rate
 
@@ -408,7 +413,9 @@ for i in range(n):
             txt_color = "white" if matrix[i, j] > 0.6 else "#333"
             ax.text(j, i, f"{matrix[i, j]:.1%}", ha="center", va="center",
                     fontsize=10, color=txt_color, fontweight="bold")
-ax.set_title("Inter-method agreement rate  (no_merge)", fontweight="bold")
+ax.set_title("Inter-method agreement rate  (no_merge)\n"
+             "among user-days where at least one method finds an activity cell",
+             fontweight="bold", fontsize=10)
 plt.tight_layout()
 plt.savefig(PLOT_DIR / "04_cross_agreement_heatmap.png", dpi=150)
 plt.close()
@@ -445,12 +452,13 @@ for ax, method in zip(axes.flat, METHODS):
     ax.spines[["top", "right"]].set_visible(False)
 
 handles, labels_leg = axes[0, 0].get_legend_handles_labels()
-fig.legend(handles, labels_leg, loc="upper left", ncol=2, fontsize=13, frameon=False)
+# Legend at the bottom, outside the panels, so it never overlaps the title
+fig.legend(handles, labels_leg, loc="lower center", ncol=4, fontsize=13, frameon=False)
 fig.suptitle(
     "Case breakdown per day per method — Method A  (% of total users, no_merge)",
     fontsize=15, fontweight="bold"
 )
-plt.tight_layout()
+plt.tight_layout(rect=[0, 0.05, 1, 0.97])
 plt.savefig(PLOT_DIR / "05_breakdown_per_day_per_method.png", dpi=150)
 plt.close()
 

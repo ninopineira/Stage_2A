@@ -59,13 +59,17 @@ PLOT_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_CONTEXT = 5
 VOMM_DISCOUNT = 0.9
+TOP_KS = [1, 3, 5, 10]
 MIN_PREDICTIONS = 10       # per-user accuracy is too noisy below this
 N_USERS = 20000            # eligible users kept (representative once the list is shuffled)
 SEED = 67                  # same seed as the project's train/test split
 GAP = 4 * 3600 + 600       # "outside" threshold, consistent with transition_emtropy.py
 
-# Predictability bands on P^max_cond, for the stratified view
-BANDS = [(0.0, 0.4, "low"), (0.4, 0.7, "medium"), (0.7, 1.01, "high")]
+# Stratified view: users split into quintiles of P^max_cond (fixed bands such as
+# 0-0.4 / 0.4-0.7 / 0.7-1 left 99 % of the users in the top band).
+N_BANDS = 5
+# True = skip the 25-minute pass and redraw the figures from the saved per-user CSV.
+REPLOT_FROM_CSV = False
 
 
 def check_inputs():
@@ -170,7 +174,9 @@ def run(test_users):
         cells = user[8::2]
         stamps = [int(ts) for ts in user[9::2]]
 
-        v_c1 = v_c5 = m_c1 = m_c5 = 0
+        v_hits = {k: 0 for k in TOP_KS}
+        m_hits = {k: 0 for k in TOP_KS}
+        stay_hits = 0
         for start in range(n_pred):
             window = cells[start:start + MAX_CONTEXT]
             true_next = cells[start + MAX_CONTEXT]
@@ -179,10 +185,12 @@ def run(test_users):
             _, mk = markov1.predict_next(context=last, last=last, top_k=10)
             vm = vomm.predict_next(tuple(window))
 
-            v_c1 += hit_at_k(vm, true_next, 1)
-            v_c5 += hit_at_k(vm, true_next, 5)
-            m_c1 += hit_at_k(mk, true_next, 1)
-            m_c5 += hit_at_k(mk, true_next, 5)
+            for k in TOP_KS:
+                v_hits[k] += hit_at_k(vm, true_next, k)
+                m_hits[k] += hit_at_k(mk, true_next, k)
+            # Trivial baseline: "the person stays where they are" (one candidate only,
+            # so its ACC@k equals its ACC@1 for every k).
+            stay_hits += int(last == true_next)
 
         s_unc, n_states = uncorrelated_entropy(cells, stamps)
         s_cond = conditional_entropy(cells, stamps)
@@ -191,10 +199,9 @@ def run(test_users):
             "id_user": user[0],
             "n_pred": n_pred,
             "n_states": n_states,
-            "vomm_acc1": v_c1 / n_pred,
-            "vomm_acc5": v_c5 / n_pred,
-            "markov_acc1": m_c1 / n_pred,
-            "markov_acc5": m_c5 / n_pred,
+            **{f"vomm_acc{k}": v_hits[k] / n_pred for k in TOP_KS},
+            **{f"markov_acc{k}": m_hits[k] / n_pred for k in TOP_KS},
+            "stay_acc1": stay_hits / n_pred,
             "S_unc": s_unc,
             "S_cond": s_cond,
             "pmax_unc": compute_pmax(s_unc, n_states),
@@ -233,21 +240,47 @@ def plot_scatter(df, xcol, xlabel, title, filename):
 
 def plot_bands(band_table):
     x = np.arange(len(band_table))
-    width = 0.38
-    plt.figure(figsize=(9, 6))
-    b1 = plt.bar(x - width / 2, band_table["vomm_acc1"], width, label="VOMM", color="seagreen")
-    b2 = plt.bar(x + width / 2, band_table["markov_acc1"], width, label="Markov order 1", color="steelblue")
-    for bars in (b1, b2):
-        plt.bar_label(bars, fmt="%.2f", fontsize=9, padding=2)
-    for i, n in enumerate(band_table["n_users"]):
-        plt.text(i, 0.02, f"n={n}", ha="center", fontsize=8, color="white")
-    plt.xticks(x, [f"{lbl}\nP^max_cond {lo:.1f}-{hi:.1f}" for lo, hi, lbl in BANDS])
-    plt.ylabel("Mean ACC@1 over users of the band")
+    width = 0.27
+    plt.figure(figsize=(11, 6))
+    series = [("Stay where they are", "stay_acc1", "lightgray"),
+              ("Markov order 1", "markov_acc1", "steelblue"),
+              ("VOMM", "vomm_acc1", "seagreen")]
+    for i, (label, col, color) in enumerate(series):
+        bars = plt.bar(x + (i - 1) * width, band_table[col], width, label=label, color=color)
+        plt.bar_label(bars, fmt="%.2f", fontsize=8, padding=2)
+    plt.xticks(x, [f"Q{i + 1}\n$P^{{max}}_{{cond}}$ {lo:.2f}-{hi:.2f}"
+                   for i, (lo, hi) in enumerate(zip(band_table["pmax_lo"], band_table["pmax_hi"]))])
+    plt.ylabel("Mean ACC@1 over users of the quintile")
     plt.ylim(0, 1)
-    plt.title("Accuracy by predictability band")
-    plt.legend()
+    plt.title(f"Accuracy by quintile of $P^{{max}}_{{cond}}$ ({int(band_table['n_users'].iloc[0]):,} users each)")
+    plt.legend(loc="upper left")
     plt.tight_layout()
     out = PLOT_DIR / "predictability_by_band.png"
+    plt.savefig(out, dpi=150)
+    print(f"Saved -> {out}")
+    plt.show()
+
+
+def plot_models(df):
+    """Stay / order-1 Markov / VOMM on the same users and the same prediction points,
+    per-user mean ACC@k (the convention used everywhere in the report)."""
+    x = np.arange(len(TOP_KS))
+    width = 0.27
+    series = [("Stay where they are", [df["stay_acc1"].mean()] * len(TOP_KS), "lightgray"),
+              ("Markov order 1", [df[f"markov_acc{k}"].mean() for k in TOP_KS], "steelblue"),
+              ("VOMM (order 5 + backoff)", [df[f"vomm_acc{k}"].mean() for k in TOP_KS], "seagreen")]
+    plt.figure(figsize=(10, 6))
+    for i, (label, values, color) in enumerate(series):
+        bars = plt.bar(x + (i - 1) * width, values, width, label=label, color=color)
+        plt.bar_label(bars, fmt="%.3f", fontsize=8, padding=2)
+    plt.xticks(x, [f"ACC@{k}" for k in TOP_KS])
+    plt.ylabel("Mean accuracy over users")
+    plt.ylim(0, 1)
+    plt.title(f"Next-cell prediction on the same prediction points\n"
+              f"({len(df):,} users, {int(df['n_pred'].sum()):,} predictions, no_duplicate test)")
+    plt.legend(loc="upper left")
+    plt.tight_layout()
+    out = PLOT_DIR / "markov_vs_vomm_no_duplicate.png"
     plt.savefig(out, dpi=150)
     print(f"Saved -> {out}")
     plt.show()
@@ -274,32 +307,37 @@ if __name__ == "__main__":
     check_inputs()
     t0 = time.time()
 
-    with open(TEST_PATH, "r", encoding="utf-8", newline="") as f:
-        test_users = list(csv.reader(f, delimiter=";"))
-
-    # Shuffle once (fixed seed) so the N_USERS sample spans all 15 days,
-    # instead of only the first day(s) of the day-ordered test file.
-    random.Random(SEED).shuffle(test_users)
-
-    df = run(test_users)
-
     csv_out = OUTPUT_DIR / "predictability_vs_accuracy.csv"
-    df.to_csv(csv_out, sep=";", index=False)
+    if REPLOT_FROM_CSV:
+        df = pd.read_csv(csv_out, sep=";")
+    else:
+        with open(TEST_PATH, "r", encoding="utf-8", newline="") as f:
+            test_users = list(csv.reader(f, delimiter=";"))
 
-    # ── Stratified band table ────────────────────────────────────────────────
-    rows = []
-    for lo, hi, lbl in BANDS:
-        band = df[(df["pmax_cond"] >= lo) & (df["pmax_cond"] < hi)]
-        rows.append({"band": lbl, "n_users": len(band),
-                     "vomm_acc1": band["vomm_acc1"].mean(),
-                     "markov_acc1": band["markov_acc1"].mean(),
-                     "pmax_cond": band["pmax_cond"].mean()})
-    band_table = pd.DataFrame(rows)
+        # Shuffle once (fixed seed) so the N_USERS sample spans all 15 days,
+        # instead of only the first day(s) of the day-ordered test file.
+        random.Random(SEED).shuffle(test_users)
+
+        df = run(test_users)
+        df.to_csv(csv_out, sep=";", index=False)
+
+    # ── Stratified band table (quintiles of P^max_cond) ─────────────────────
+    df["band"] = pd.qcut(df["pmax_cond"], N_BANDS, labels=False)
+    band_table = (df.groupby("band")
+                    .agg(n_users=("pmax_cond", "size"), pmax_lo=("pmax_cond", "min"),
+                         pmax_hi=("pmax_cond", "max"), pmax_cond=("pmax_cond", "mean"),
+                         stay_acc1=("stay_acc1", "mean"), markov_acc1=("markov_acc1", "mean"),
+                         vomm_acc1=("vomm_acc1", "mean"))
+                    .reset_index())
 
     # ── Console summary ───────────────────────────────────────────────────────
-    print(f"\nUsers kept: {len(df)}   (>= {MIN_PREDICTIONS} predictions each)\n")
-    print(f"Mean VOMM   ACC@1 : {df['vomm_acc1'].mean():.3f}")
-    print(f"Mean Markov ACC@1 : {df['markov_acc1'].mean():.3f}")
+    print(f"\nUsers kept: {len(df)}   (>= {MIN_PREDICTIONS} predictions each)"
+          f"   |   predictions: {int(df['n_pred'].sum()):,}\n")
+    for k in TOP_KS:
+        print(f"Mean ACC@{k:<2}  VOMM {df[f'vomm_acc{k}'].mean():.3f}"
+              f"   Markov {df[f'markov_acc{k}'].mean():.3f}")
+    print(f"Mean stay ACC@1 : {df['stay_acc1'].mean():.3f}"
+          f"   (pooled {(df['stay_acc1'] * df['n_pred']).sum() / df['n_pred'].sum():.3f})")
     print(f"Mean P^max_unc    : {df['pmax_unc'].mean():.3f}"
           f"   | VOMM exceeds it for {(df['vomm_acc1'] > df['pmax_unc']).mean() * 100:.1f}% of users")
     print(f"Mean P^max_cond   : {df['pmax_cond'].mean():.3f}"
@@ -320,3 +358,4 @@ if __name__ == "__main__":
                  "predictability_vs_pmax_unc.png")
     plot_bands(band_table)
     plot_gap(df)
+    plot_models(df)

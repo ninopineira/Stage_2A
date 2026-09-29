@@ -9,6 +9,7 @@ from models import MobilityTransformer
 from dataset import MobilityDataset
 
 import argparse
+import json
 from pathlib import Path
 import tqdm
 # ---------------------------------------------------------------------------
@@ -235,9 +236,21 @@ if __name__ == "__main__":
 
     MAIN_DIR = Path(__file__).parent.parent.parent
     OUTPUT_DIR = MAIN_DIR / "results/predictions/deep_learning"
- 
+
+    # N_CELLS est lu depuis le mapping produit par create_cellid_map.py, et non codé en
+    # dur : c'est ce même mapping qui a servi à encoder les .pt, donc les deux ne peuvent
+    # pas diverger (une valeur codée en dur trop petite tronque le vocabulaire et fait
+    # planter l'embedding sur les cellules d'indice élevé).
+    CELL_MAP_PATH = OUTPUT_DIR / "cell_map_start_1.json"
+    if not CELL_MAP_PATH.exists():
+        raise FileNotFoundError(
+            f"{CELL_MAP_PATH} introuvable — lancer d'abord create_cellid_map.py "
+            "puis encode_and_convert_csv_to_pytorch.py."
+        )
+    with open(CELL_MAP_PATH, mode="r", encoding="utf-8") as f:
+        N_CELLS = len(json.load(f))   # nombre de cellules réelles (indices 1..N)
+
     DEVICE    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    N_CELLS   = 369     # nombre de cellules uniques (à ajuster avec vos données)
     D_MODEL   = 128     # 128 → 512 (×4, impact quadratique sur l'attention)
     N_HEADS   = 4       # 4   → 8
     N_LAYERS  = 2       # 2   → 6    (le levier le plus puissant sur les params)

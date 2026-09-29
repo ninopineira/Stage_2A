@@ -175,17 +175,19 @@ def plot_roc_pr(results: dict, y_true: np.ndarray):
     print("  Saved → roc_pr.png")
 
 def plot_feature_importance(results: dict, feature_names: list):
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    # Single panel: only XGBoost is trained (the empty 2nd panel was a leftover from
+    # the old XGBoost+RandomForest version). For the before/after comparison, see
+    # plot_feature_importance_before_after().
+    fig, ax = plt.subplots(1, 1, figsize=(9, 7))
     fig.suptitle("Feature importance", fontsize=13, fontweight="bold")
 
-    for ax, (name, res) in zip(axes, results.items()):
+    for name, res in results.items():
         importances = res["feature_importances"]
         idx = np.argsort(importances)
-        color = COLORS[name]
         ax.barh(
             [feature_names[i] for i in idx],
             importances[idx],
-            color=color, alpha=0.85
+            color=COLORS[name], alpha=0.85
         )
         ax.set_title(name)
         ax.set_xlabel("Importance")
@@ -279,15 +281,13 @@ def plot_threshold_analysis(results: dict, y_true: np.ndarray):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def compare_entropy_contribution():
-    """The headline experiment: train the same XGBoost with vs without the causal
-    entropy features (same data, same params) and print the metrics side by side.
-    This is the direct, quantified answer to 'does integrating the entropy help?'."""
-    from sklearn.metrics import roc_auc_score, average_precision_score, f1_score
-
+    """Headline experiment: the SAME XGBoost, on the SAME data, trained WITHOUT vs
+    WITH the causal entropy features. Prints the metrics and draws the before/after
+    plots (overlaid ROC & PR curves + a grouped metric bar chart)."""
     tr = pd.read_csv(TRAIN_CSV, sep=";")
     te = pd.read_csv(TEST_CSV, sep=";")
 
-    def run(cols, tag):
+    def run(cols):
         d_tr = tr.dropna(subset=cols + [LABEL_COL])
         d_te = te.dropna(subset=cols + [LABEL_COL])
         Xtr, ytr = d_tr[cols].values.astype(np.float32), d_tr[LABEL_COL].values.astype(np.int8)
@@ -300,14 +300,129 @@ def compare_entropy_contribution():
         model.fit(Xtr, ytr)
         prob = model.predict_proba(Xte)[:, 1]
         pred = (prob >= 0.5).astype(int)
-        print(f"  {tag:<18} AUC={roc_auc_score(yte, prob):.4f}  "
-              f"AP={average_precision_score(yte, prob):.4f}  "
-              f"F1={f1_score(yte, pred):.4f}   ({len(cols)} features)")
+        return {"y_true": yte, "y_prob": prob, "n_features": len(cols),
+                "model": model, "cols": cols,
+                "auc": roc_auc_score(yte, prob),
+                "ap": average_precision_score(yte, prob),
+                "f1": f1_score(yte, pred)}
+
+    res = {"without entropy": run(BASE_COLS), "with entropy": run(FEATURE_COLS)}
 
     print("\n══ Does the causal entropy help the move/stay classifier? ══")
-    run(BASE_COLS, "without entropy")
-    run(FEATURE_COLS, "with entropy")
-    print()
+    for tag, r in res.items():
+        print(f"  {tag:<16} AUC={r['auc']:.4f}  AP={r['ap']:.4f}  F1={r['f1']:.4f}   ({r['n_features']} features)")
+    a, b = res["without entropy"], res["with entropy"]
+    print(f"  {'gain (delta)':<16} AUC={b['auc']-a['auc']:+.4f}  AP={b['ap']-a['ap']:+.4f}  F1={b['f1']-a['f1']:+.4f}\n")
+
+    plot_before_after(res)
+    plot_feature_importance_before_after(res)
+    plot_threshold_analysis_before_after(res)
+
+
+def plot_feature_importance_before_after(res):
+    """Feature importance without (left) vs with (right) the entropy features.
+    The entropy features are highlighted on the right panel."""
+    from matplotlib.patches import Patch
+    fig, axes = plt.subplots(1, 2, figsize=(15, 7))
+    for ax, tag in zip(axes, ["without entropy", "with entropy"]):
+        r = res[tag]
+        cols, imp = r["cols"], r["model"].feature_importances_
+        order = np.argsort(imp)                     # ascending -> largest on top of barh
+        names = [cols[i] for i in order]
+        colors = ["#2a8a62" if nm in ENTROPY_COLS else "#6b7d8a" for nm in names]
+        ax.barh(names, imp[order], color=colors)
+        ax.set_title(f"{tag}  ({len(cols)} features)", fontweight="bold")
+        ax.set_xlabel("Importance")
+        ax.tick_params(axis="y", labelsize=8)
+    axes[1].legend(handles=[Patch(color="#2a8a62", label="entropy features"),
+                            Patch(color="#6b7d8a", label="base features")],
+                   loc="lower right", fontsize=9)
+    fig.suptitle("Feature importance — before (without entropy) vs after (with entropy)",
+                 fontsize=13, fontweight="bold")
+    fig.tight_layout()
+    out = PLOT_DIR / "movement_entropy_feature_importance_before_after.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"Saved -> {out}")
+    plt.show()
+
+
+def plot_threshold_analysis_before_after(res):
+    """The predecessor's threshold analysis (F1 / Precision / Recall / Specificity vs
+    the decision threshold), split into two panels: left = before (without entropy),
+    right = after (with entropy). The dotted grey line marks the best-F1 threshold."""
+    thresholds = np.linspace(0.1, 0.9, 80)
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5.5), sharey=True)
+    for ax, tag in zip(axes, ["without entropy", "with entropy"]):
+        r = res[tag]
+        yt, yp = r["y_true"], r["y_prob"]
+        f1s, precs, recs, specs = [], [], [], []
+        for t in thresholds:
+            pred = (yp >= t).astype(int)
+            f1s.append(f1_score(yt, pred, zero_division=0))
+            precs.append(precision_score(yt, pred, zero_division=0))
+            recs.append(recall_score(yt, pred, zero_division=0))
+            tn = int(((yt == 0) & (pred == 0)).sum())
+            fp = int(((yt == 0) & (pred == 1)).sum())
+            specs.append(tn / (tn + fp) if (tn + fp) else 0.0)
+        ax.plot(thresholds, f1s,   label="F1",          lw=2, color="#534AB7")
+        ax.plot(thresholds, precs, label="Precision",   lw=2, color="#E85D24")
+        ax.plot(thresholds, recs,  label="Recall",      lw=2, color="#1D9E75")
+        ax.plot(thresholds, specs, label="Specificity", lw=2, color="#BA7517", ls="--")
+        best_t = thresholds[int(np.argmax(f1s))]
+        ax.axvline(best_t, color="grey", ls=":", lw=1.5, label=f"best-F1 θ = {best_t:.2f}")
+        ax.set(title=f"{tag}  ({r['n_features']} features)", xlabel="Decision threshold θ",
+               xlim=(0.1, 0.9), ylim=(0, 1))
+        ax.grid(True, ls="--", alpha=0.3)
+        ax.legend(fontsize=8, loc="center right")
+    axes[0].set_ylabel("Score")
+    fig.suptitle("Metrics vs decision threshold — before vs after entropy",
+                 fontsize=13, fontweight="bold")
+    fig.tight_layout()
+    out = PLOT_DIR / "movement_entropy_threshold_before_after.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"Saved -> {out}")
+    plt.show()
+
+
+def plot_before_after(res):
+    """Overlaid ROC & PR curves + grouped metric bars, without vs with entropy."""
+    col = {"without entropy": "#6b7d8a", "with entropy": "#2a8a62"}   # grey vs green
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+
+    for tag, r in res.items():
+        fpr, tpr, _ = roc_curve(r["y_true"], r["y_prob"])
+        axes[0].plot(fpr, tpr, color=col[tag], lw=2, label=f"{tag} (AUC={r['auc']:.3f})")
+    axes[0].plot([0, 1], [0, 1], "k--", lw=1)
+    axes[0].set(xlabel="False positive rate", ylabel="True positive rate", title="ROC",
+                xlim=(0, 1), ylim=(0, 1))
+    axes[0].legend(loc="lower right", fontsize=9)
+
+    for tag, r in res.items():
+        prec, rec, _ = precision_recall_curve(r["y_true"], r["y_prob"])
+        axes[1].plot(rec, prec, color=col[tag], lw=2, label=f"{tag} (AP={r['ap']:.3f})")
+    axes[1].set(xlabel="Recall", ylabel="Precision", title="Precision-Recall",
+                xlim=(0, 1), ylim=(0, 1))
+    axes[1].legend(loc="lower left", fontsize=9)
+
+    metrics, labels = ["auc", "ap", "f1"], ["ROC-AUC", "AP", "F1"]
+    x, width = np.arange(len(metrics)), 0.38
+    for i, (tag, r) in enumerate(res.items()):
+        bars = axes[2].bar(x + (i - 0.5) * width, [r[m] for m in metrics], width,
+                           label=tag, color=col[tag])
+        axes[2].bar_label(bars, fmt="%.3f", fontsize=8, padding=2)
+    axes[2].set_xticks(x)
+    axes[2].set_xticklabels(labels)
+    axes[2].set_ylim(0, 1)
+    axes[2].set_title("Metrics (test)")
+    axes[2].legend(fontsize=9)
+
+    fig.suptitle("Move/stay classifier — before (base features) vs after (+ entropy)",
+                 fontsize=13, fontweight="bold")
+    fig.tight_layout()
+    out = PLOT_DIR / "movement_entropy_before_after.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"Saved -> {out}")
+    plt.show()
 
 
 def main():

@@ -2,7 +2,6 @@ from collections import Counter
 import csv
 import json
 from pathlib import Path
-from typing import Counter
 import tqdm
 from utils import get_day
 import re

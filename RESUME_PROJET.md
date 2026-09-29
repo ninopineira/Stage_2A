@@ -2,569 +2,465 @@
 
 > Document de reprise. Il décrit **ce qu'est le projet**, **le format des données**, **le rôle de chaque dossier et de chaque script**, **l'ordre dans lequel les choses s'enchaînent**, et enfin **l'état d'avancement et les pièges** à connaître avant de reprendre le travail.
 >
-> Rédigé à partir de la lecture du code, des deux `README.md` existants ([python/README.md](python/README.md), [results/README.md](results/README.md)) et de l'historique git (mars → juin 2026).
+> Rédigé à partir de la lecture du code, des notes internes ([Python/Machin_learning/NOTES_prediction_prochaine_station.md](Python/Machin_learning/NOTES_prediction_prochaine_station.md), [Python/EXPLICATION_deep_learning_et_simple_predictor.md](Python/EXPLICATION_deep_learning_et_simple_predictor.md)) et de l'historique git (mai → août 2026).
+>
+> **Document compagnon :** [CLAUDE.md](CLAUDE.md) — même contenu factuel, mais organisé comme une carte de référence (conventions, chemins, sorties de chaque script). Ce fichier-ci raconte le *pourquoi* et l'*état d'avancement* ; CLAUDE.md sert à se repérer dans le code.
 
 ---
 
 ## 1. Objectif du projet
 
-Le projet exploite un **jeu de données de traces de téléphonie mobile** (Tchéquie, mars/avril 2014) : pour chaque utilisateur et pour chaque journée, on dispose de la suite des **antennes (cellules) auxquelles son téléphone s'est connecté**, avec l'horodatage de chaque connexion.
+Le projet exploite un **jeu de données de traces de téléphonie mobile** (Tchéquie, mars 2014) : pour chaque utilisateur et pour chaque journée, on dispose de la suite des **antennes (cellules) auxquelles son téléphone s'est connecté**, avec l'horodatage de chaque connexion.
 
-Deux grands axes de travail ont été menés, dans cet ordre chronologique :
+Deux grands axes de travail, dans cet ordre chronologique :
 
-1. **Analyse et caractérisation du dataset** (mars → avril 2026)
-   Comprendre la donnée : combien d'enregistrements par personne, à quelles heures, quelles cellules sont les plus fréquentées, combien de temps y reste-t-on, quelles anomalies existent (le fameux « vendredi 21/03 »), et **classifier les utilisateurs** selon leur profil de présence sur la journée.
+1. **Analyse et caractérisation du dataset** (mai → juillet 2026)
+   Comprendre la donnée : à quelles heures les gens se connectent, quelles cellules sont les plus fréquentées, qui entre et qui sort de la zone, quelle est l'**entropie** de chaque utilisateur, et **classifier les utilisateurs** selon leur profil de présence sur la journée ainsi que les **antennes** selon leur profil horaire.
 
-2. **Prédiction de mobilité** (mai → juin 2026)
-   Prédire la **prochaine cellule** que va visiter un utilisateur à partir de son historique de la journée. Trois familles d'approches ont été tentées :
-   - modèles markoviens d'ordre variable (**VOMM**) — c'est la piste la plus aboutie ;
-   - un **Transformer** (PyTorch, encodage positionnel TUPE) — code écrit, entraînement lancé, pas de résultat consolidé ;
-   - une reformulation en **classification binaire « bouge / ne bouge pas »** (XGBoost / RandomForest / LSTM sur features construites à la main) — c'est le chantier en cours au moment de l'arrêt.
+2. **Prédiction de mobilité** (juillet → août 2026)
+   Prédire la **prochaine cellule** que va visiter un utilisateur à partir de son historique de la journée, et surtout **mesurer jusqu'où c'est théoriquement possible** :
+   - Markov d'ordre 1, en évaluation **causale** (online) et en split aléatoire ;
+   - modèles markoviens d'**ordre variable** (VOMM avec back-off) — la piste la plus aboutie ;
+   - **bornes de prévisibilité** (inégalité de Fano sur S_unc, entropie conditionnelle, entropie held-out, Lempel-Ziv) ;
+   - un **Transformer** (PyTorch, attention TUPE) — code écrit, pas de résultat consolidé ;
+   - une reformulation en **classification binaire « bouge / ne bouge pas »** (XGBoost / RandomForest / LSTM sur features construites à la main).
 
-Le fil rouge implicite : la prédiction « naïve » qui consiste à répondre *« il restera là où il est »* est déjà très bonne (les gens sont majoritairement immobiles), donc tout l'enjeu est de **détecter les instants où l'utilisateur bouge réellement**.
+Le fil rouge implicite : la prédiction « naïve » qui consiste à répondre *« il restera là où il est »* est déjà très bonne (**72,0 %** des enregistrements consécutifs sont dans la même cellule sur `no_duplicate` ; elle obtient 0,652 d'ACC@1, au-dessus du Markov d'ordre 1), donc tout l'enjeu est de **détecter les instants où l'utilisateur bouge réellement**.
 
 ---
 
-## 2. Le format des données — à lire absolument
+## 2. Historique du dépôt — à savoir avant de lire le code
+
+Ce dépôt réunit **deux sources de travail** :
+
+- le travail mené ici depuis le **11/05/2026** (analyse, entropies, classification, baseline Markov) ;
+- le travail d'un **ancien collaborateur (Arthur)**, importé le **31/07/2026** (commit `f4c0d82`, *« Markov and adding of the work of arthur »*) : les dossiers `dataset_creation/`, `simple_predictor/`, `deep_learning/`, et une partie de `important_cells_work/`.
+
+Le dépôt d'origine d'Arthur travaillait sur **plusieurs zones géographiques** (`cd_010`, `cd_142`, `cd_170`) et son arborescence reflétait ce découpage (`python/cd_142/analysis/`, `Database/cd_142_dataset/`, `final_python/`…). En reprenant le travail, **une seule zone a été conservée** — les autres datasets ont été supprimés pour libérer de la place (les fichiers sont lourds : `Database/` pèse encore ~7 Go et `results/` ~26 Go) — et **l'arborescence a été aplatie** : plus de niveau par zone, `Database/<variante>/` directement, `Python/<thème>/` directement.
+
+**Conséquences pratiques :**
+
+- Certains scripts importés portent encore des traces de l'ancienne organisation dans leurs commentaires ou dans des chemins commentés (`results/cd_142/…`, `Database/cd_142_dataset/…`). Le code **actif** a été recâblé sur les chemins actuels, mais en cas de doute, c'est toujours l'arborescence décrite au §4 qui fait foi.
+- Les scripts d'analyse de la zone `cd_010` et les générateurs de variantes du dataset (`GENERATION_*`) d'Arthur **ne sont pas dans ce dépôt** : les variantes de `Database/` sont présentes en tant que **données déjà générées**, pas en tant que code régénérable. Si une variante doit être reconstruite, le script est à réécrire.
+- Il reste dans `Database/cells/` et `Database/map/` des fichiers relatifs à `cd_010` et `cd_170` (listes de cellules, shapefiles QGIS). Ils sont conservés comme référentiel, mais **aucun script actif ne les lit** : tout pointe sur `cd_142`.
+
+---
+
+## 3. Le format des données — à lire absolument
 
 Tout le code manipule des CSV **sans en-tête**, séparés par des **points-virgules**, où **une ligne = un utilisateur pour une journée**. Un fichier = un jour.
 
 ```
-user_id ; age ; gender ; unknown ; letters ; BS1 ; BS2 ; n_records ; cell₁ ; ts₁ ; cell₂ ; ts₂ ; … ; cellₙ ; tsₙ ;
+user_id ; age ; gender ; unknown ; letters ; BS1 ; BS2 ; n_records ; cell₁ ; ts₁ ; cell₂ ; ts₂ ; … ; cellₙ ; tsₙ
    0       1       2        3         4       5     6       7          8      9     10     11
 ```
 
 | Index | Champ | Description |
 |---|---|---|
 | 0 | `user_id` | Identifiant anonymisé de l'utilisateur |
-| 1 | `age` | Âge supposé — **renseigné pour ~40 % des utilisateurs seulement** |
+| 1 | `age` | Âge supposé — renseigné pour une minorité d'utilisateurs seulement |
 | 2 | `gender` | `F` / `M` — même taux de remplissage |
-| 3 | `unknown_numbers` | Champ numérique fourni par l'opérateur, **signification jamais élucidée** (ressemble à un code postal) |
+| 3 | `unknown_numbers` | Champ numérique fourni par l'opérateur, **signification jamais élucidée** |
 | 4 | `letters` | Code opérateur à 4 lettres (`CEBU`, `BUNE`, `CETR`, `NUDM`, `CENU`, `CEZB`, `NUDU`, `NUNU`, ou vide) — **sémantique inconnue**, utilisé comme proxy de « comportement » dans les premières analyses |
 | 5 | `BS1` | Cellule « domicile » supposée, fournie par l'opérateur |
 | 6 | `BS2` | Cellule « activité » supposée, fournie par l'opérateur (souvent vide) |
 | 7 | `n_records` | Nombre d'enregistrements de la ligne |
-| 8, 10, 12… | `cellᵢ` | Identifiant de cellule (ex. `BSOBRE1`) |
+| 8, 10, 12… | `cellᵢ` | Identifiant de cellule (ex. `BSOBRE1`, `UKVKOL102`) |
 | 9, 11, 13… | `tsᵢ` | Timestamp **en secondes depuis minuit** (0 → 86400), donc **relatif à la journée** |
 
 Extrait réel :
 
 ```
-10634423;51;F;;CEBU;BSOBRE1;;19;BSOBRE1;1110;BSOBRE1;6555;BSOBRE1;10822;…;BSOBRE1;86025;
+43;;;35731;BUNE;BSOHSL2;;20;BSOHSL2;89;BSOHSL2;14492;BSOHSL2;28894;…;BSOHSL2;76790
 ```
 
 **Points d'attention :**
 
-- Les lignes du `raw_dataset` se terminent par un `;` → un dernier champ vide parasite. Plusieurs scripts font `row[:-1]` pour s'en débarrasser.
 - `cells = row[8::2]` et `timestamps = row[9::2]` est **l'idiome utilisé partout** dans le code.
+- ⚠️ **Les `user_id` ne sont PAS stables d'un jour à l'autre** (vérifié : intersection vide entre les ids du 12/03 et du 13/03 — l'anonymisation est refaite chaque jour). Impossible donc de construire une séquence multi-jours : **chaque « utilisateur » n'existe que sur une journée** (typiquement 10–200 records), et toute la modélisation personnelle est confinée à cette journée. C'est la contrainte la plus structurante du projet.
 - Le premier caractère du `cellid` code la technologie : **`B` et `D` → 2G**, **`U` et `V` → 3G**. Une même antenne physique apparaît donc sous plusieurs `cellid`.
-- **Fusion des cellules en « stations de base »** — récurrente dans tout le projet, via la fonction `merge_cell_id` (dupliquée dans plusieurs fichiers) :
+- **Fusion des cellules en « stations de base »** — récurrente dans tout le projet. Deux familles de fonctions coexistent :
   ```python
+  # Machin_learning/, STATS_*, plot_from_csv/  → dictionnaire MERGE à 3 modes
+  MERGE = {"no_merge": lambda x: x,      # cellid brut
+           "simple":   get_cell_code,    # préfixe alphabétique (BSOBRE1 → BSOBRE)
+           "2g3g":     get_cell_code2}   # préfixe sans le 1er caractère (BSOBRE1 → SOBRE)
+
+  # dataset_creation/, simple_predictor/    → merge_cell_id
   def merge_cell_id(cell: str):
       if cell.startswith(('B','D')):  return cell[1:-1]   # 2G
       else:                           return cell[1:-3]   # 3G
   ```
-  Objectif : un utilisateur qui bascule entre `BKVPER1` et `BKVPER3` **ne bouge pas réellement**, il change juste de secteur/technologie. C'est indispensable pour la prédiction de mouvement.
+  Objectif identique : un utilisateur qui bascule entre `BKVPER1` et `BKVPER3` **ne bouge pas réellement**, il change juste de secteur ou de technologie. C'est indispensable pour la prédiction de mouvement.
+- **Seuil de coupure temporel** : au-delà d'environ 4 h sans enregistrement, on considère que l'utilisateur est **sorti de la zone** (état `outside`) et on ne construit pas de contexte à cheval sur le trou. ⚠️ Trois marges cohabitent dans le code : `4h+30s` (`MAX_DELTA`, dataset_creation), `4h+60s` (`sample_for_training.py`) et `4h+10min` (`GAP_LIMIT`, Machin_learning). Elles ne sont **pas** interchangeables quand on compare des populations d'utilisateurs.
 
-### Périmètre géographique
+### Périmètre
 
-- **`cd_142`** — la zone étudiée dans quasiment tout le projet. **15 jours**, du **2014-03-12 au 2014-03-26**, ~**92 000 lignes/jour**, **369 cellules**.
-- **`cd_010`** — une première zone, explorée en début de stage puis abandonnée. **7 jours**, du **2014-04-07 au 2014-04-13**.
-- **`cd_170`** — une troisième zone, dont seule la liste de cellules est présente.
+- **Zone `cd_142`** — la seule zone étudiée. **15 jours**, du **2014-03-12 au 2014-03-26**, ~90 000 lignes/jour, **369 cellules**.
+- **Anomalie connue** : le **vendredi 2014-03-21** a une plage horaire quasiment vide (problème de collecte côté opérateur). C'est la raison invoquée pour **ne pas encoder finement les jours** dans les modèles (cf. l'en-tête de `deep_learning/create_cellid_map.py`).
 
 ---
 
-## 3. Arborescence générale
+## 4. Arborescence réelle
 
 ```
-Stage3A/
-├── Database/                 ← Données brutes et dérivées (4,4 Go, NON versionné)
-│   ├── cells/                    Coordonnées lat/lon de toutes les antennes
-│   └── cd_142_dataset/           Le dataset + ses variantes générées
+Stage_2A/
+├── Database/                 ← Données brutes et dérivées (~7 Go, NON versionné)
+│   ├── cells/                    Référentiels cellid;lat;lon;x;y (cells.csv = 11 030 antennes
+│   │                             du pays ; cd_142_cells.csv = les 369 de la zone)
+│   ├── raw_dataset/              15 × AAAA-MM-JJ_vektory.csv — la source
+│   ├── no_duplicate/             ⭐ variante de référence, utilisée par défaut partout
+│   ├── no_duplicate_max_512_records/  tronqué à 512 records (deep learning)
+│   ├── no_duplicate_merge_2g3g/  cellules fusionnées en stations de base
+│   ├── with_distance/            ⚠️ la colonne 4 n'est plus `letters` mais la distance parcourue
+│   ├── without_records/          les 8 colonnes de métadonnées seulement
+│   ├── sample_for_training/      échantillon des utilisateurs à plus forte entropie
+│   ├── class_merge/              dataset filtré sur une classe d'utilisateurs
+│   └── map/                      shapefiles QGIS (cd_010, cd_142) — non lus par le code actif
 │
-├── python/                   ← Tout le code
-│   ├── cd_010/                   Analyses de la 1ʳᵉ zone — OBSOLÈTE
-│   ├── cd_142/
-│   │   ├── analysis/             Analyse statistique + graphes de la zone 142
-│   │   ├── important_cells_work/ Détection cellule domicile/activité + classification des users
-│   │   └── dataset_creation/     Préparation des données pour la prédiction (pipeline 0→6)
-│   ├── simple_predictor/         Modèles markoviens (VOMM) + prédiction de mouvement
-│   ├── deep_learning/            Transformer PyTorch
-│   └── other/                    Scripts jetables
+├── Python/                   ← Tout le code (détail au §5)
+│   ├── Machin_learning/          Entropies, matrices de transition, baseline Markov, P^max
+│   ├── important_cells_work/     Cellules domicile/activité, classification users et antennes
+│   ├── plot_from_csv/            Figures à partir des CSV/NPY déjà produits
+│   ├── dataset_creation/         Pipeline 0→6 de préparation à la prédiction
+│   ├── simple_predictor/         VOMM, prévisibilité, prédiction de mouvement
+│   └── deep_learning/            Transformer TUPE
 │
-├── results/                  ← Sorties de tous les scripts (NON versionné, sauf README)
-│   ├── cd_010/ , cd_142/         json / html / plots / intermediate_result
-│   └── predictions/              ⚠️ ABSENT sur le disque — à régénérer
+├── results/                  ← Sorties de tous les scripts (~26 Go, NON versionné)
+│   ├── numpy/                    .npy : entropies, matrices de transition, accuracies
+│   ├── intermediate_result/      ⭐ CSV pivots relus par d'autres scripts
+│   ├── plots/ maps/ json/ classification/
+│   ├── 2014-03-XX/               un dossier par jour (classification des antennes)
+│   └── predictions/              splits train/test, n-grammes, métriques, checkpoints
 │
-├── final_python/             ← Scripts « propres » retenus pour le rapport/soutenance
-└── final_results/            ← Figures finales correspondantes (versionnées)
+├── CLAUDE.md                 ← Carte de référence du dépôt
+├── RESUME_PROJET.md          ← Ce document
+└── README.md
 ```
 
----
-
-## 4. Détail des dossiers
-
-### 4.1 `Database/` — les données
-
-**Non versionné** (`.gitignore`), ~4,4 Go. Seul `Database/cells/` est dans git.
-
-#### `Database/cells/`
-| Fichier | Contenu |
-|---|---|
-| `cells.csv` | **Référentiel complet** : `cellid;lat;lon;x;y` pour ~11 030 antennes de tout le pays. C'est le fichier chargé par la plupart des scripts pour convertir un `cellid` en coordonnées. |
-| `cd_010_cells.csv`, `cd_142_cells.csv`, `cd_170_cells.csv` | Sous-ensembles par zone (369 cellules pour cd_142). |
-| `cells_of_dataset_cd_142.csv` | Cellules réellement observées dans le dataset cd_142. |
-
-#### `Database/cd_142_dataset/`
-Chaque sous-dossier contient **15 fichiers CSV** (un par jour), et représente **une variante du même dataset**. Toutes sont produites par le script [GENERATION_generate_all_csv.py](python/cd_142/analysis/GENERATION_generate_all_csv.py) à partir de `raw_dataset/`.
-
-| Dossier | Ce qu'il contient | À quoi ça sert |
-|---|---|---|
-| `raw_dataset/` | Les données brutes livrées (`AAAA-MM-JJ_vektory.csv`) | Source de tout |
-| `no_duplicate/` | Les `(cellule, timestamp)` strictement identiques consécutifs sont supprimés | **La variante la plus utilisée** dans le projet |
-| `no_duplicate_max_512_records/` | Idem + lignes tronquées à ≤ 512 enregistrements | Analyses statistiques : 512 = 2⁹, et **99,4 % des utilisateurs sont en dessous** ; au-delà ce sont des artefacts (M2M, systèmes automatiques) |
-| `no_duplicate_merge_2g3g/` | Idem `no_duplicate` mais les cellules sont **fusionnées en stations de base** | Prédiction de **mouvement réel** |
-| `without_records/` | Seulement les 8 colonnes de métadonnées, sans les enregistrements | Analyses rapides (distributions, âge, genre) sans charger 4 Go |
-| `with_distance/` | La colonne `letters` (index 4) est **remplacée** par la distance totale parcourue dans la journée, en mètres | Statistiques de mobilité |
-| `deep_learning/` | **Vide** — dossier prévu pour les tenseurs encodés, jamais rempli à cet emplacement |
-
-> ⚠️ Attention à `with_distance/` : la colonne 4 change de sens. Un script qui suppose `letters` en 4 donnera n'importe quoi sur cette variante.
+Seuls **100 fichiers** sont versionnés : le code, `Database/cells/`, et les deux documents de synthèse. `Database/` et `results/` sont dans `.gitignore`.
 
 ---
 
-### 4.2 `python/cd_010/` — première zone (OBSOLÈTE)
+## 5. Détail des dossiers de `Python/`
 
-11 scripts écrits en tout début de stage (commits de fin mars 2026) sur la zone `cd_010` (7 jours d'avril 2014). Ils ont ensuite été **réécrits et améliorés dans `python/cd_142/analysis/`**.
-
-**Ils ne tournent plus** : leurs chemins pointent vers `../../Database/dataset/…`, une arborescence qui n'existe plus (ni `dataset/`, ni `added_n_records/`). Ils sont conservés à titre historique.
-
-Contenu (chaque script a son équivalent modernisé côté `cd_142`) :
-`insert_number_of_records.py` (ajoute la colonne `n_records`, qui n'était pas dans le brut de cd_010), `generate_all_csv.py`, `create_transition_matrix.py`, `get_cell_dataset_origin.py`, `get_global_data_analysis.py`, `get_most_recorded_cells.py`, `get_most_stayed_cells.py`, `plot_comparison_2g_and_3g_records.py`, `plot_records_distribution.py`, `plot_timestamp_distribution.py`, `utils.py`.
-
-> **Recommandation :** ne pas y toucher, et se référer uniquement à `cd_142/analysis/`.
-
----
-
-### 4.3 `python/cd_142/analysis/` — analyse statistique de la zone 142
-
-C'est le cœur de la première phase du stage. Les noms sont préfixés selon [la convention du README](python/README.md) :
-
-- `GENERATION_*` → produit des variantes du dataset
-- `STATS_*` → produit des `.json` / `.csv` de statistiques
-- `GRAPH_*` → produit des graphes (networkx / gephi)
-- `plot_*` → produit des `.png` (matplotlib) ou `.html` (plotly)
+### 5.1 Scripts à la racine
 
 | Script | Rôle |
 |---|---|
-| **`GENERATION_generate_all_csv.py`** | **Le générateur central.** À partir de `raw_dataset/`, produit toutes les variantes de `Database/cd_142_dataset/`. On active/désactive chaque variante via le dictionnaire booléen `CSV_TO_GENERATE` en tête de fichier. C'est ici qu'on ajoute une nouvelle variante. |
-| `GENERATION_base_station_list.py` | Produit `cd_142_base_stations.csv` : la version « fusionnée » du référentiel de cellules (une ligne par station physique). |
-| `GENERATION_create_transition_matrix.py` | Matrice de transition cellule A → cellule B sur les 15 jours. Génère aussi une version **à diagonale nulle** (P(A→A)=0) — car sinon la transition vers soi-même écrase tout — ainsi que des variantes par jour, par heure, par classe, et des versions qui **ignorent les transitions séparées de plus de 4 h**. |
-| `STATS_get_global_data_analysis.py` | Le « rapport statistique » du dataset : par jour, nombre d'enregistrements (max/moyenne/médiane), timestamps moyens du premier et du dernier enregistrement, temps moyen entre deux enregistrements, distance moyenne entre cellules consécutives, distance totale parcourue. → `results/cd_142/json/global_data_analysis_*.json`. |
-| `STATS_get_global_data_analysis_plots.py` | Même chose mais en figures Plotly (demandées par l'encadrant). |
-| `STATS_get_most_recorded_cells.py` | Les cellules les plus **visitées** (une visite comptée **une seule fois par utilisateur**, pour éviter que les utilisateurs immobiles ne créent des « supercellules »). |
-| `STATS_get_most_stayed_cells.py` | Les cellules où l'on **reste le plus longtemps**, avec plusieurs découpages horaires (4h–20h, 5h–19h, 6h–18h et leurs compléments nuit/matin) pour distinguer domicile et lieu d'activité. |
-| `STATS_get_cell_dataset_origin.py` | Répartit les cellules du dataset entre les 3 zones (cd_010 / cd_142 / cd_170). |
-| `STATS_get_user_by_main_cell.py` | Compte les utilisateurs par « comportement » (code `letters`), par jour et au total. |
-| `STATS_get_proportion_of_user_with_X_records.py` | Proportion d'utilisateurs ayant 1, 2, … 8 enregistrements. **Résultat structurant :** une part énorme des utilisateurs a très peu d'enregistrements et est donc inexploitable pour la prédiction. |
-| `STATS_special_friday_analysis.py` | Analyse ciblée du **vendredi 21/03/2014**, où une plage horaire est quasiment vide : problème de collecte côté opérateur. Cette anomalie est la raison pour laquelle les jours ne sont pas encodés finement dans les modèles. |
-| `GRAPH_get_graph_popularity_cell.py` / `…_merge.py` | Construisent le graphe des cellules (nœuds = cellules, arêtes = transitions) au format `.gexf`, en version normale et fusionnée 2G/3G. |
-| `GRAPH_apply_community_alg_gephi.py` / `…_merge.py` | Appliquent des algorithmes de détection de communautés (bibliothèque `cdlib` : Leiden, etc.) sur ces graphes et évaluent modularité, densité interne, conductance. |
-| `GRAPH_community_analysis.py` | Métriques complémentaires pour comparer graphe fusionné vs non fusionné (ratio de voisinage, ratio de voisins intra-communauté). |
-| `plot_records_distribution.py` | Distribution du nombre d'enregistrements par utilisateur, par jour + vue d'ensemble. *(x = nombre d'enregistrements, y = nombre d'utilisateurs ayant exactement ce nombre.)* |
-| `plot_timestamp_distribution.py` | Heatmap des timestamps (résolution 1 min × 15 jours) — **c'est la figure qui révèle l'anomalie du vendredi**. |
-| `plot_comparison_2g_and_3g_records.py` | Comptage 2G vs 3G par jour. |
-| `plot_records_distribution_by_behaviour.py` | Distribution du nombre d'enregistrements par code `letters`, en dashboards HTML interactifs. |
-| `plot_age_and_gender_dist_by_behaviour.py` | Distributions d'âge et de genre par comportement (dashboards HTML). |
-| `utils.py` | **Boîte à outils commune** : ouverture de CSV avec/sans en-tête (`has_header`), `get_day()`, `is_weekend()`, calcul de distance géodésique (`geopy`), `compute_distance_travelled_by_user()`, séparation par code `letters`. Contient aussi du code QGIS commenté (visualisation de trajectoires en GeoJSON). |
+| `utils.py` | Boîte à outils commune : ouverture de CSV avec/sans en-tête (`has_header`), `get_day()`, `is_weekend()`, distance géodésique (`geopy`), `compute_distance_travelled_by_user()`, séparation par code `letters`. Contient aussi du code QGIS commenté (trajectoires en GeoJSON). |
+| `STATS_use_cell_by_hour.py` | Fréquence d'utilisation de chaque cellule **heure par heure** (nombre d'utilisateurs présents et nombre de connexions), pour les 3 modes de fusion. C'est la **base de la classification des antennes**. → `results/intermediate_result/stats_*_by_hour_*.csv` |
+| `STATS_get_start_sequece.py` | Proportion des antennes qui servent d'**entrée** ou de **sortie** de la zone d'étude. |
+| `sample_for_training.py` | Construit `Database/sample_for_training` : les N utilisateurs de **plus forte entropie** par jour (10–200 records, sans trou > 4 h). ⚠️ Population volontairement difficile — voir §7. |
+| `find_cell.py` | Liste les stations de base disposant à la fois de cellules 2G et 3G. |
+| `test_home_act_cell_dataset.py` | Compte, dans le dataset brut, les lignes où BS1/BS2 sont présents, égaux ou absents. |
+| `Exemples.py` | Figures d'illustration pour un utilisateur : profil horaire des connexions, profil 10 min empilé par cellule. |
 
----
+### 5.2 `Machin_learning/` — entropies, transitions, baseline Markov
 
-### 4.4 `python/cd_142/important_cells_work/` — cellules importantes et classification des utilisateurs
-
-Deuxième bloc de la phase d'analyse, et **conceptuellement le plus important pour la suite**. Objectif : déterminer, pour chaque utilisateur, sa **cellule domicile** et sa **cellule d'activité**, puis en déduire une **classe de comportement journalier**.
-
-Les scripts sont numérotés dans leur ordre logique d'exécution.
+Le cœur de la mesure de **prévisibilité**. Toutes les sorties vont dans `results/numpy/`.
 
 | Script | Rôle |
 |---|---|
-| `1_get_user_important_cells_from_dataset.py` | Version « naïve » : compte les utilisateurs ayant un `BS1`/`BS2` renseigné **directement d'après les colonnes du dataset**. Sert de point de comparaison. |
-| `2_get_user_important_cells_handmade.py` | **Redétermine soi-même** domicile et activité, avec des plages horaires choisies et surtout en raisonnant sur la **position physique** plutôt que sur le `cellid` (`AAAAAA101` et `AAAAAA102` = même endroit). Produit `results/cd_142/intermediate_result/classified_dataset_merge_{simple,2g3g}.csv`. |
-| `2_get_user_important_cells_handmade_statistics.py` | Statistiques sur ces résultats (comptages par cellule domicile / activité). |
-| `2_barplot_user_important_cells_handmade.py` | Barplots comparant les catégories : `both` / `home cell only` / `activity cell only` / aucune. |
-| `2_user_categories_plots.py` | Autres visualisations des mêmes catégories, avec distinction semaine / week-end. |
-| `3_full_stats_for_1_record_users.py` | Étude spécifique des utilisateurs à **un seul enregistrement** dans la journée : combien, et à quelle heure. Contient `shortest_interval()`, qui calcule le plus petit intervalle temporel contenant 80 % des données. |
-| **`4_user_classification.py`** | **Le script clé.** Découpe la journée en **6 fenêtres de 4 h** et classe chaque utilisateur selon le motif de présence dans ces fenêtres (voir tableau ci-dessous). Produit `results/cd_142/intermediate_result/cell_classification*.csv` avec, par utilisateur et par jour : la classe, le nombre de trous > 4 h, et la fréquence d'enregistrements dans chaque fenêtre. |
-| `4_count_user_by_category.py` | Agrège les effectifs par jour et par classe. |
-| `4_plot_timestamp_distribution_by_class.py` | Heatmap des timestamps **par classe** — permet de vérifier visuellement que les classes ont du sens. |
-| `4_search_weird_results.py` | Densité d'utilisateurs par cellule pour la classe majoritaire vs les autres, pour investiguer des résultats surprenants. |
-| `utils.py` | Version allégée : `get_day()` et `is_weekend()` seulement. |
-| `deprecated/` | Anciennes définitions de « cellule d'activité » (`old_def.py` = continu, `my_def.py` = non continu) et leurs statistiques. Conservées pour retracer l'évolution du raisonnement. |
+| `transition_matrix.py` | Matrice de transition cellule A → cellule B sur les 15 jours, pour les 3 modes de fusion → `transition_matrix_{merge}.npy` et sa version normalisée. |
+| `transition_emtropy.py` | Entropie **S_unc** par utilisateur → `user_entropies_{merge}.npy`, un tuple `(day, entropy, rel_entropy, n_records, n_states)` par utilisateur. |
+| `transition_entropy_by_period.py` | Même chose découpée en **Matin / Jour / Soir**, avec 9 combinaisons de bornes (matin finissant à 4/5/6 h, soir démarrant à 18/19/20 h) → 55 valeurs par utilisateur. |
+| **`maximal_previsibility.py`** | **P^max** par l'inégalité de Fano (`compute_pmax`, `load_pmax_dataframe`). Importé par la plupart des scripts de prédiction. Deux bugs importants y ont été corrigés — voir §8. |
+| `markov_baseline.py` | Markov personnel d'ordre 1, split **aléatoire 70/30** des transitions → `markov_accuracy_no_merge.npy`. Répond à *« est-ce que je capture mon P^max sur un échantillon quelconque de mes trajets ? »*. |
+| **`markov_sequential_prediction.py`** | Markov **causal / online** : à la transition *i*, on prédit avec les seules transitions `0..i-1`, puis on met à jour le modèle. **C'est le protocole honnête**, celui qui correspond au vrai objectif → `markov_sequential_accuracy_no_merge.npy`. |
+| `plot_markov_vs_pmax.py` | Accuracy empirique vs P^max : scatter + droite y=x, histogrammes, découpage par nombre de records et par jour. |
+| `plot_markov_sequential_by_day.py` | Vue agrégée jour par jour (accuracy moyenne vs P^max moyen, week-ends en rouge). |
+| `plot_markov_methods_comparison.py` | Les deux protocoles côte à côte, **sans** référence à P^max, sur exactement la même population. |
+| `NOTES_prediction_prochaine_station.md` | **Journal de bord détaillé** de cette phase : bugs trouvés, chiffres obtenus, limites méthodologiques. À lire avant de toucher à ces scripts. |
 
-**Le schéma de classification** (`4_user_classification.py`, fenêtres 0-4h, 4-8h, 8-12h, 12-16h, 16-20h, 20-24h) :
+### 5.3 `important_cells_work/` — cellules importantes et classifications
 
-| Classe | Signification |
-|---|---|
-| `1` | Présent dans **les 6 fenêtres** — utilisateur le mieux couvert (c'est la classe utilisée pour les tests de prédiction) |
-| `2` – `5` | Présence **continue** sur une sous-partie de la journée (2 : 0h–20h, 3 : 4h–24h, 4 : 4h–20h, 5 : autre plage continue) |
-| `6` | Présent **matin et soir uniquement**, rien entre les deux |
-| `7`, `8`, `9` | Présent dans **une seule fenêtre** (respectivement 0-4h, 20-24h, autre) |
-| `10` – `16` | Présence **discontinue**, sous-classée par la taille du plus grand trou (4-6h, 6-8h, … , ≥16h) |
-| `21` – `25` | Utilisateurs avec **1 à 5 enregistrements** seulement (`20 + n_records`) — trop peu de données, écartés partout |
-
----
-
-### 4.5 `python/cd_142/dataset_creation/` — préparation pour la prédiction
-
-Pipeline numéroté qui transforme le dataset en **matériel d'entraînement**. C'est le pont entre la phase d'analyse et la phase de modélisation.
+Deuxième bloc de la phase d'analyse, et **conceptuellement le socle de la suite**.
 
 | Script | Rôle |
 |---|---|
-| `0_make_full_dataset_from_class_or_weekend.py` | Reconstruit **un seul fichier** à partir des 15 jours, en filtrant sur une classe d'utilisateurs (issue de la classification 4.4) et/ou en séparant semaine / week-end. |
-| **`1_train_test_split.py`** | Split **80 % train / 20 % test** (mélange aléatoire, `SEED = 67`). Produit `results/predictions/train_test/train_random.csv` et `test_random.csv`. Le fichier contient aussi, **en commentaire**, les variantes de split : sur données fusionnées 2G/3G, sur classe 1 uniquement, avec split de validation. |
+| `2_get_user_important_cells_handmade_continue.py` | **Redétermine soi-même** la cellule domicile de chaque utilisateur, en raisonnant sur la **position physique** plutôt que sur le `cellid` (`AAAAAA101` et `AAAAAA102` = même endroit), pour 9 découpages horaires → `results/intermediate_result/classified_dataset_merge_{merge}.csv`. |
+| `2_get_user_act_cell_continue.py` | Même travail pour la **cellule d'activité**, avec 4 définitions concurrentes (`cont_no_gap`, `cont_gap`, `no_cont_no_gap`, `no_cont_gap`) selon qu'on exige une présence continue et qu'on tolère les trous. |
+| `2_get_user_important_cells_handmade_statistics.py` | Comptages agrégés sur ces résultats (par cellule, par période, par raison de non-détection). |
+| `2_activity_cells_results_against_dataset.py` | Confronte les cellules d'activité **redétectées** à la colonne `BS2` du dataset — combien coïncident, selon quelle définition. |
+| `3_home_cells_results_against_dataset.py` | Idem pour la cellule domicile contre `BS1`. |
+| **`generalised_classification_users.py`** | **Le script clé.** Classification **6 bits** : la journée est découpée en 6 fenêtres de 4 h, un bit à 1 = présent dans au moins une antenne pendant cette tranche → 64 classes possibles, regroupées ensuite en **5 clusters** interprétables : `0` toujours présent, `1` domicile mais sort la journée, `2` résident de nuit partant la journée, `3` arrivée de jour restant la nuit, `4` de passage. → `user_generalised_classification.csv` et `…_by_user.csv`. |
+| `classification_cells.py` | Classification des **antennes** (et non des utilisateurs) : K-Means sur le profil horaire 24 h, après soustraction adaptative de la ligne de base (proportionnelle au coefficient de variation) et normalisation L1. Courbe du coude + centroïdes, **un dossier de résultats par jour**. |
+| `utils.py` | Copie de `Python/utils.py` (maintenue identique). |
+
+### 5.4 `plot_from_csv/` — figures
+
+Ces scripts ne relisent (presque) jamais le dataset brut : ils travaillent sur les CSV et NPY déjà produits, ce qui les rend rapides à itérer.
+
+Histogrammes d'entropie (`plot_hist_entropy.py`, `plot_hist_entropy_by_period.py`), entropies par période et par nombre de records, occupation horaire agrégée (`plot_sum_by_day_cell_connections.py`, `plot_sum_by_day_user_presence.py`), dashboard HTML Chart.js de l'usage des cellules (`plot_html_cell_use_by_hour.py`), carte folium des entrées/sorties (`plot_entree_exit_on_map.py`), répartition des classes d'utilisateurs (`plot_classification.py`), distribution travail/activité. `clean_old_plots.py` supprime les PNG produits sous d'anciennes conventions de nommage.
+
+### 5.5 `dataset_creation/` — préparation pour la prédiction
+
+Pipeline numéroté, pont entre l'analyse et la modélisation.
+
+| Script | Rôle |
+|---|---|
+| `0_make_full_dataset_from_class_or_weekend.py` | Reconstruit **un seul fichier** à partir des 15 jours, en filtrant sur une classe d'utilisateurs et/ou en séparant semaine / week-end. |
+| **`1_train_test_split.py`** | Split **80 % train / 20 % test** (mélange aléatoire, `SEED = 67`) → `results/predictions/train_test/{train,test}_random.csv`. Le fichier contient aussi, en commentaire, les variantes de split (fusionné 2G/3G, classe 1 uniquement, avec validation). |
 | `2a_create_full_ngrams_matrix.py` | **V1** — n-grammes calculés sur **tout** le dataset. |
-| `2b_create_train_ngrams_matrix.py` | **V2** — n-grammes calculés **uniquement sur le split train** (c'est la version correcte, sans fuite de données). |
-| `2c_create_train_ngrams_matrix_by_class.py` | Idem mais **une matrice par classe** d'utilisateur. |
-| `3_deduplicate_csv.py` | Supprime les **répétitions consécutives de cellule** dans un CSV de split. Indispensable : prédire `A → A` n'a aucun intérêt, et les répétitions faussent complètement les métriques. |
-| `4_create_train_ngrams_with_time.py` | **V3** — ajoute une matrice des **délais** de transition en parallèle des comptages. ⚠️ **~1 h de calcul et beaucoup de RAM.** |
-| `5_correlation_time.py` | Étude de corrélation entre le délai moyen du contexte et le délai vers la cellule suivante. **Conclusion explicitement écrite dans le fichier : aucune corrélation exploitable.** Le temps ne peut donc pas servir de feature directe pour prédire *quand* aura lieu la prochaine transition. Le script est conservé pour ne pas refaire l'essai. |
-| `6a_convert_context_to_idx.py` | Convertit les contextes (chaînes) en indices entiers pour PyTorch. |
-| `6b_convert_csv_for_gpu.py` | Convertit les CSV en tenseurs (`contexts`, `hours`, `targets`), **un fichier par longueur de contexte**. Ignore les utilisateurs à moins de 6 enregistrements. |
-| `stats_ngrams.py` | Statistiques sur les matrices de n-grammes produites (couverture, distribution des comptages). |
-| `utils.py` | `find_ngrams()` et `find_ngrams_optimized()` — extraction de n-grammes, avec option de **coupure quand l'écart temporel dépasse un seuil** (`max_gap`), pour ne pas créer de faux contextes à cheval sur une nuit. |
+| **`2b_create_train_ngrams_matrix.py`** | **V2** — n-grammes calculés **uniquement sur le split train**. C'est la version correcte, sans fuite de données. |
+| `2c_create_train_ngrams_matrix_by_class.py` | Idem, mais **une matrice par classe** d'utilisateur. |
+| `3_deduplicate_csv.py` | Supprime les **répétitions consécutives de cellule**. Indispensable : prédire `A → A` n'a aucun intérêt et les répétitions faussent complètement les métriques. |
+| `4_create_train_ngrams_with_time.py` | **V3** — ajoute une matrice des **délais** de transition. ⚠️ ~1 h de calcul et beaucoup de RAM. |
+| `5_correlation_time.py` | Étude de corrélation entre le délai moyen du contexte et le délai vers la cellule suivante. **Conclusion négative écrite en gros dans le fichier : aucune corrélation exploitable.** Conservé pour ne pas refaire l'essai. |
+| `6a_convert_context_to_idx.py` / `6b_convert_csv_for_gpu.py` | Conversion des contextes en indices puis en tenseurs PyTorch (`contexts`, `hours`, `targets`), **un fichier par longueur de contexte**. |
+| `stats_ngrams.py` | Statistiques sur les matrices produites (couverture, nombre de suffixes par contexte). |
+| `utils.py` | `find_ngrams()` et `find_ngrams_optimized()` — extraction de n-grammes avec **coupure quand l'écart temporel dépasse `max_gap`**, pour ne pas créer de faux contextes à cheval sur une nuit. |
 
-**Format des matrices de n-grammes** (JSON) :
+**Format des matrices de n-grammes** (JSON), contextes de longueur **1 à 5** :
 
 ```json
-{
-  "longueur_de_contexte": {
-    "séquence_de_cellules_du_contexte": {
-      "cellule_suivante": nombre_d_occurrences
-    }
-  }
-}
+{ "longueur_de_contexte": { "cellA-cellB-cellC": { "cellule_suivante": nb_occurrences } } }
 ```
 
-Les longueurs de contexte vont de **1 à 5** (parfois 6).
+### 5.6 `simple_predictor/` — VOMM, prévisibilité, mouvement
 
----
+Le dossier le plus dense. Trois sous-chantiers partagent `models.py` et `utils.py`.
 
-### 4.6 `python/simple_predictor/` — modèles de prédiction
+**A. Prédiction de la prochaine cellule**
 
-Le dossier le plus actif de mai/juin 2026. Il contient **deux sous-chantiers distincts** qui partagent le même `models.py`.
+- **`models.py`** — `NaiveMarkovChain` (ordre fixe), `NaiveMarkovChainWithTimeWeight`, **`VOMM`** (ordre variable + *absolute discounting* et back-off récursif dans l'esprit de Kneser-Ney), `VOMM_V4` (back-off jusqu'à l'ordre 0, scoring en log-space + softmax), **`VOMM_V5`** (+ `temporal_boost` domicile-la-nuit / activité-le-jour, + profil utilisateur à décroissance exponentielle ; `discount = 0.90` — **le modèle du pipeline actuel**).
 
-#### A. Prédiction de la prochaine cellule (`VOMM_*`, `NAIVE_*`)
-
-| Fichier | Rôle |
-|---|---|
-| **`models.py`** | Toutes les classes de modèles (voir détail ci-dessous). |
-| **`utils.py`** | Classes utilitaires : `HelperVOMM` (préparation des n-grammes, comptages de contextes, unigrammes), `HelperData` (mapping utilisateur → jour/ligne, sauvegardes), **`Metrics`** (`top_k_accuracy`, `map_k`, `log_likelihood`, `negative_log_likelihood`, `perplexity`, `mean_reciprocal_rank`), et un `MobilityDataset` PyTorch. |
-| `VOMM_prediction_pipeline.py` | **Pipeline principal d'évaluation.** Charge une matrice d'entraînement + un split de test, instancie le modèle, prédit et écrit les métriques en JSON. La fin du fichier contient **~10 configurations d'expérience préparées et commentées** (avec/sans répétitions, fusionné 2G/3G, par classe, semaine/week-end) : c'est un catalogue d'expériences à décommenter une par une. |
-| `NAIVE_prediction_pipeline.py` | Même pipeline pour les baselines `NaiveMarkovChain`. |
-| `VOMM_single_prediction.py` | Prédiction sur un seul utilisateur — utile pour déboguer / inspecter. |
-| `PLOT_VOMM_metrics_by_discount.py` | Trace les métriques en fonction du paramètre `discount` du modèle. |
-| `user_mapping.py` | Construit un index `user_id → (jour, numéro de ligne)` pour retrouver rapidement un utilisateur. |
-| `train_time_weight.py` | Tentative d'apprentissage par descente de gradient d'un poids par (heure, cellule) — matrice 24 × 369. **Noté comme n'ayant pas fonctionné** dans le message de commit. |
-
-**Les modèles de `models.py` :**
-
-- **`NaiveMarkovChain`** — chaîne de Markov d'ordre fixe. Baseline.
-- **`NaiveMarkovChainWithTimeWeight`** — idem, pondérée par l'heure.
-- **`VOMM`** *(le modèle de référence)* — **Variable-Order Markov Model** avec *absolute discounting* et *backoff* récursif, dans l'esprit de Kneser-Ney :
-
+  Le cœur mathématique est `_recursive_prob` :
   ```
   P(cible | contexte) = max(count(contexte,cible) − d, 0) / count(contexte)
                         + (d · nb_suffixes_uniques / count(contexte)) · P(cible | contexte_raccourci)
   ```
+  La récursion réduit le contexte d'un cran à chaque échec, **jusqu'à l'ordre 0 (l'unigramme)**.
 
-  La récursion réduit le contexte d'un cran à chaque échec, jusqu'à l'unigramme. Paramètres : `max_order=5`, `discount=0.75`. Un `cache` sur les contextes accélère fortement les prédictions.
-  *(Un bug sur la borne de récursion — descente jusqu'à 1 au lieu de 0 — a été corrigé le 29/05, cf. commit `688f68e`.)*
-- **`VOMM_V4`** — ajoute un **boost temporel** : les cellules domicile/activité voient leur score majoré selon l'heure.
-- **`VOMM_V5`** — ajoute en plus un **profil utilisateur** construit sur son historique avec décroissance exponentielle (`decay=0.95`). `discount` par défaut porté à 0.90. **C'est le modèle utilisé par le pipeline actuel.**
+- **`utils.py`** — `HelperVOMM` (préparation des n-grammes, comptages de contextes, unigrammes), `HelperData` (mapping utilisateur → jour/ligne, sauvegardes), **`Metrics`** (`top_k_accuracy`, `map_k`, `log_likelihood`, `negative_log_likelihood`, `perplexity`, `mean_reciprocal_rank`), et un `MobilityDataset` PyTorch.
+- `NAIVE_prediction_pipeline.py` / `VOMM_prediction_pipeline.py` — pipelines d'évaluation. **Une dizaine de configurations d'expérience sont préparées puis commentées** en fin de fichier (avec/sans répétitions, fusionné 2G/3G, par classe, semaine/week-end) : c'est un catalogue à décommenter une par une.
+- `COMPARE_markov_vs_vomm.py` — Markov d'ordre 1 vs VOMM sur **exactement** le même test set, les mêmes points de prédiction et les mêmes métriques. C'est le seul endroit où les deux familles sont réellement comparables.
+- `VOMM_single_prediction.py` — prédiction sur une séquence unique, pour inspecter/déboguer le comportement du modèle.
+- `PLOT_VOMM_metrics_by_discount.py` — métriques en fonction du paramètre `discount`.
+- `user_mapping.py` — index `user_id → (jour, ligne)`.
+- `train_time_weight.py` — apprentissage par descente de gradient d'une matrice de poids `θ[heure, cellule]` (24 × 369). **N'a pas donné de résultat exploitable.**
 
-**Métriques suivies** : `ACC@k` et `MAP@k` pour k ∈ {1, 3, 5, 10}, log-vraisemblance moyenne, plus un indicateur « meta » très parlant : la proportion de prédictions où le modèle **répond simplement la dernière cellule du contexte**, en distinguant les cas où il a raison de ceux où il a tort. C'est la mesure du biais d'immobilité évoqué en introduction.
+**Métriques suivies** : `ACC@k` et `MAP@k` pour k ∈ {1, 3, 5, 10}, log-vraisemblance moyenne, plus un indicateur « méta » très parlant : la proportion de prédictions où le modèle **répond simplement la dernière cellule du contexte**, en distinguant les cas où il a raison de ceux où il a tort. C'est la mesure directe du biais d'immobilité évoqué en introduction.
 
-#### B. Prédiction de mouvement (`MOVEMENT_PREDICTION_*`)
+**B. Bornes de prévisibilité (`PREDICTABILITY_*`)** — l'apport le plus récent (août 2026)
 
-Reformulation du problème : au lieu de prédire *quelle* cellule, prédire **binairement si l'utilisateur va changer de cellule** au prochain enregistrement. Suggestion de l'encadrant ; travaille sur les **cellules fusionnées en stations de base** pour ne capturer que les vrais déplacements.
+| Script | Ce qu'il mesure |
+|---|---|
+| `PREDICTABILITY_vs_accuracy.py` | Dans **une seule passe** : accuracy empirique des modèles **et** P^max issu de deux entropies (S_unc = plafond d'un prédicteur sans mémoire, S_cond = plafond d'ordre 1). Tout est aligné par utilisateur, sans jointure fragile. |
+| `PREDICTABILITY_by_order_calendar.py` | P^max conditionnel et ACC@1 **par ordre k = 1..5**, en calendriers de scatter (15 panneaux). Utilise volontairement `NaiveMarkovChain(order=k)`, seul modèle qui conditionne sur exactement k cellules. Montre **délibérément** l'artefact de sur-apprentissage : à mesure que k grandit, S_cond → 0 et P^max → 1. |
+| `PREDICTABILITY_heldout_bound.py` | Corrige cet artefact par une **entropie held-out** (validation croisée, lissage de Laplace + back-off vers l'unigramme). La cross-entropie surestime l'entropie vraie, donc la borne obtenue est **conservatrice** — c'est le bon comportement. |
+| `PREDICTABILITY_lempelziv_bound.py` | Borne **Lempel-Ziv** (Song et al. 2010), déclinée par ordre maximal en plafonnant la longueur des correspondances. ⚠️ L'estimateur converge lentement : lire les moyennes par jour, pas les valeurs par utilisateur. |
+
+**C. Prédiction de mouvement (`MOVEMENT_PREDICTION_*`)**
+
+Reformulation binaire : au lieu de prédire *quelle* cellule, prédire **si** l'utilisateur va changer de cellule au prochain enregistrement. Travaille sur les cellules **fusionnées** pour ne capturer que les vrais déplacements.
 
 | Fichier | Rôle |
 |---|---|
-| `MOVEMENT_PREDICTION_analyze_user_movements.py` | **Étude préalable** : comment se comportent les utilisateurs quand ils bougent vs quand ils restent, distribution du premier et du dernier déplacement de la journée. L'en-tête du fichier liste explicitement les **cas non résolus** (déplacements trop courts pour être anticipés). |
-| `MOVEMENT_PREDICTION_extract_features.py` | **V1 puis V3/V4** de l'extraction de features (~20–40 min de calcul). Produit un CSV de features + label. |
-| `MOVEMENT_PREDICTION_extract_features_V2.py` | Version suivante, avec un jeu de features différent (et un sous-ensemble « late features »). |
-| `MOVEMENT_PREDICTION_fit_features.py` / `_V2.py` | Entraînent **XGBoost** et **RandomForest** sur ces features, évaluent sur le test, et sauvegardent modèles `.joblib`, métriques JSON, courbes ROC/PR et importances de features. |
-| `MOVEMENT_PREDICTION_analyze_features_usage.py` | Analyse **SHAP** : importance globale, par classe (`move` vs `stay`), interactions entre features, explication locale, et analyse des features dominantes sur les **faux positifs / faux négatifs**. |
-| `MOVEMENT_PREDICTION_train_lstm.py` | Alternative : au lieu d'un vecteur de features à l'instant T, donner **la séquence** des vecteurs [t=1…T] à un LSTM, l'idée étant que « le signal est dans la dérivée, pas dans la valeur absolue ». |
-| `MOVEMENT_PREDICTION_mobility_explorer.py` | Visualisation interactive Plotly des trajectoires utilisateur sur carte. |
+| `MOVEMENT_PREDICTION_analyze_user_movements.py` | Étude préalable : distribution de l'heure du **premier** et du **dernier** déplacement de la journée, par jour, week-ends en rouge. |
+| `MOVEMENT_PREDICTION_extract_features.py` / `…_V2.py` | Extraction des features + label. La V1 génère **tous** les points de chaque utilisateur, la V2 tire **un seul** point aléatoire par utilisateur. ⚠️ 20–40 min de calcul. |
+| `MOVEMENT_PREDICTION_fit_features.py` / `…_V2.py` | **XGBoost** et **RandomForest** (gestion du déséquilibre par `scale_pos_weight`, early stopping) ; sorties : modèles `.joblib`, métriques JSON, ROC/PR, importances, calibration, métriques vs seuil. Référence indiquée dans le code : **F1 ≈ 0.60, ROC-AUC ≈ 0.84**. |
+| `MOVEMENT_PREDICTION_train_lstm.py` | Alternative séquentielle : donner **la séquence** des vecteurs de features à un **LSTM bidirectionnel** (l'idée étant que le signal est dans la *dérivée* des features), avec un MLP résiduel et XGBoost en comparaison. |
+| `MOVEMENT_PREDICTION_analyze_features_usage.py` | Analyse **SHAP** : importance globale, beeswarm, dependence plots, et surtout **quelles features trompent le modèle sur les faux positifs / faux négatifs**. |
+| `MOVEMENT_PREDICTION_mobility_explorer.py` | Outil interactif : saisir un `user_id` et tracer (Plotly) sa distance à la première cellule de la journée au fil du temps. |
 
-**Les features** (classes `MovementPredictor` et `MovementPredictorV2` dans `models.py`) tournent autour de la notion de **cellule d'ancrage** (`anchor cell`, la cellule de référence de la journée) :
+**Les features** tournent autour de la notion de **cellule d'ancrage** (`anchor cell`, la cellule de référence de la journée) :
 
 - *Position vs ancre* : `is_at_anchor_cell`, `trip_phase`, `anchor_dominance_ratio`
 - *Déclenchement* : `has_departed_today`, `first_departure_elapsed_h`, `time_in_anchor_before_departure_h`
 - *Retour* : `returned_to_anchor`, `time_since_return_h`
 - *Dynamique* : `local_acceleration`, `n_complete_trips`, `current_trip_duration_h`, `is_oscillating`, `phase_transition_signal`
-- *Profil* : `out_of_anchor_entropy`, `last_n_distinct_cells`, `recent_record_density`
+- *Profil* : `out_of_anchor_entropy`, `last_n_distinct_cells`, `recent_record_density`, et en V2 des features d'entropie glissante (`running_entropy`, `running_cond_entropy`, `running_pmax`)
 
-Le **label** est construit ainsi : on coupe l'historique de l'utilisateur à un point aléatoire, et `label = 1` si la cellule suivante diffère de la dernière du contexte.
+Le **label** : on coupe l'historique de l'utilisateur à un point donné, et `label = 1` si la cellule suivante diffère de la dernière du contexte.
 
-> **État :** le dernier commit (`57ad37e`, 08/06) indique explicitement *« V4 extract feature and fit features **not so good** »*. **C'est le point exact où le travail s'est arrêté.**
-
----
-
-### 4.7 `python/deep_learning/` — Transformer PyTorch
-
-Approche séquentielle profonde, développée début mai 2026.
+### 5.7 `deep_learning/` — Transformer TUPE
 
 | Fichier | Rôle |
 |---|---|
-| `create_cellid_map.py` | Crée le mapping `cellid` (chaîne) → entier, ainsi qu'un mapping jour → entier (0–14). **L'en-tête explique pourquoi les jours ne sont pas encodés plus finement** : deux semaines sont trop courtes pour apprendre une saisonnalité hebdomadaire, et l'anomalie du vendredi risquerait d'induire le modèle en erreur. |
-| `encode_and_convert_csv_to_pytorch.py` | Encode les séquences en tenseurs `(cells, times, mask)` de longueur fixe **512**, en ignorant les utilisateurs à moins de **8** enregistrements. Écrit `encoded_train.pt`, `encoded_val.pt`, `encoded_test.pt`. Convention d'indices : **0 = PAD**, **1…N = cellules**, **N+1 = EOS**. |
+| `create_cellid_map.py` | Mappings `cellid` → entier : `cell_map.json` (0-indexé, pour le modèle de time-weight) et `cell_map_start_1.json` (1-indexé, l'indice 0 étant réservé au padding), plus `day_map.json`. L'en-tête explique **pourquoi les jours ne sont pas encodés finement**. |
+| `encode_and_convert_csv_to_pytorch.py` | Encode les séquences en tenseurs `(cells, times, mask)` de longueur fixe **512**, en ignorant les utilisateurs à moins de **8** enregistrements ; timestamps normalisés par 86400 ; split 60/20/20 → `encoded_{train,val,test}.pt`. |
 | `dataset.py` | `MobilityDataset(Dataset)` — charge ces tenseurs. |
-| `models.py` | `MobilityTransformer` avec attention **TUPE** (*Transformer with Untied Positional Encoding*, Ke et al. 2020) : les scores d'attention séparent strictement le flux *contenu* (embedding de cellule) du flux *position* (projection MLP du timestamp normalisé), au lieu de les additionner. Défauts : `d_model=128`, `n_heads=4`, `n_layers=2`, `d_ff=256`. |
-| `train.py` | Boucle d'entraînement complète, avec `argparse` (`--save-path`) et sauvegarde de checkpoints. **~27 min par epoch** (indiqué en commentaire). Les `MIN_CONTEXT = 6` premiers tokens ne sont pas prédits. |
-| `loss.py`, `test.py` | **Fichiers vides** — prévus, jamais écrits. |
+| `models.py` | `MobilityTransformer` avec attention **TUPE** (*Untied Positional Encoding*, Ke et al. 2020) : les scores d'attention séparent strictement le flux *contenu* (embedding de cellule) du flux *position* (projection MLP du timestamp), au lieu de les additionner. Défauts : `d_model=128`, `n_heads=4`, `n_layers=2`. |
+| `train.py` | Boucle complète : teacher forcing décalé d'un pas, loss `CrossEntropyLoss` sur les positions **non paddées** et **≥ `MIN_CONTEXT` = 6**, `OneCycleLR`, AdamW, clip de gradient, reprise depuis un checkpoint. **~27 min par epoch.** |
 
-> **État :** infrastructure complète et cohérente, mais **aucun résultat consolidé** n'est présent dans le dépôt. `test.py` vide signifie qu'il n'y a pas de procédure d'évaluation finale.
+Convention d'indices : **0 = PAD**, **1…N = cellules**, **N+1 = EOS** (`vocab_size = N+2`).
 
----
-
-### 4.8 `python/other/` — scripts jetables
-
-| Fichier | Rôle |
-|---|---|
-| `extract_users.py` | Extrait 100 utilisateurs « intéressants » d'une journée (lundi 24/03) : au moins 15 enregistrements, jamais sortis de la zone (aucun trou > ~4 h), dont 20 immobiles et 80 mobiles. Sert à constituer un petit échantillon d'inspection manuelle. |
-| `loaddata.py` | Micro-script de bricolage — contient un `breakpoint()` pour explorer les données en interactif. |
+> **État :** infrastructure complète et cohérente, mais **aucun résultat consolidé** dans le dépôt, et **pas de script d'évaluation finale** (voir §9).
 
 ---
 
-### 4.9 `final_python/` et `final_results/` — le livrable
+## 6. Enchaînement des traitements
 
-Contrairement au reste, **ces deux dossiers sont versionnés dans git**. Ce sont les scripts et figures **retenus pour la restitution** : versions nettoyées, chemins simplifiés (`MAIN_DIR = Path(__file__).parent.parent`), sorties directement dans `final_results/`.
-
-| Script | Figure produite |
-|---|---|
-| `plot_heatmap.py` | `final_results/Timestamp_heatmap.png` — heatmap 1 min × 15 jours |
-| `plot_timestamp_distribution.py` | `final_results/Timestamp_Distribution_All_Day.png` |
-| `plot_records_distribution.py` | `final_results/plots/Record_Distribution_All_Days.png` + un dossier par jour avec les versions plafonnées à 128 et 512 |
-| `plot_number_user_by_day.py` | `final_results/number_of_users_by_day.png` |
-| `plot_classification_repartition.py` | `final_results/cell_classification_repartition.png` — top 5 des classes par jour + « Other » |
-| `utils.py` | Copie de `cd_142/analysis/utils.py` |
-
-> **C'est le meilleur point d'entrée pour comprendre visuellement le dataset avant de plonger dans le code.**
-
----
-
-### 4.10 `results/` — les sorties
-
-**Non versionné** (sauf `results/README.md`, qui documente en détail le contenu de chaque JSON, PNG et HTML — **à lire**).
+### Pipeline 1 — Analyse et classification
 
 ```
-results/
-├── README.md                    ← Description fichier par fichier
-├── cd_010/  json/ plots/            Résultats de la zone abandonnée
-└── cd_142/
-    ├── json/                        Statistiques globales, cellules les plus visitées,
-    │   └── time_spent/              temps passé par cellule selon les découpages horaires
-    ├── html/                        Dashboards Plotly interactifs (âge, genre, distributions,
-    │                                réseau de cellules, exploration de mobilité)
-    ├── plots/                       PNG : un dossier par jour + figures globales
-    │   ├── behaviour/
-    │   ├── important_cells_work/    Barplots des cellules domicile/activité
-    │   │   └── CLASSIFICATION/      Barplots par classe d'utilisateur (préfixés 1_, 2_, …)
-    │   └── gif/                     evolution_distribution.gif
-    └── intermediate_result/         ⭐ Le plus important : CSV de classification par
-                                     utilisateur/jour, réutilisés par les scripts de prédiction
+Database/no_duplicate/
+    ├─► STATS_use_cell_by_hour.py ──► results/intermediate_result/stats_*_by_hour_*.csv
+    │        ├─► important_cells_work/classification_cells.py ──► results/<jour>/classification_base_stations.csv
+    │        └─► plot_from_csv/plot_html_cell_use_by_hour.py, plot_sum_by_day_*.py
+    ├─► important_cells_work/generalised_classification_users.py ──► user_generalised_classification*.csv
+    │        └─► plot_from_csv/plot_classification.py
+    ├─► important_cells_work/2_get_user_*_continue.py ──► classified_dataset_merge_*.csv
+    │        └─► 2_/3_*_results_against_dataset.py   (confrontation à BS1/BS2)
+    └─► STATS_get_start_sequece.py ──► plot_from_csv/plot_entree_exit_on_map.py
 ```
 
-> ⚠️ **`results/predictions/` est absent du disque.** C'est pourtant le dossier vers lequel pointent **tous** les scripts de `dataset_creation/`, `simple_predictor/` et `deep_learning/` (splits train/test, matrices de n-grammes, métriques, checkpoints). Il faudra le régénérer — voir §6.
-
----
-
-## 5. Enchaînement des traitements
-
-### Pipeline 1 — Analyse (déjà exécuté, résultats disponibles)
+### Pipeline 2 — Entropies et prévisibilité théorique
 
 ```
-Database/cd_142_dataset/raw_dataset/
-        │
-        └─► GENERATION_generate_all_csv.py
-                └─► no_duplicate/ , without_records/ , with_distance/ ,
-                    no_duplicate_max_512_records/ , no_duplicate_merge_2g3g/
-                        │
-                        ├─► STATS_*.py  ──► results/cd_142/json/
-                        ├─► plot_*.py   ──► results/cd_142/plots|html/
-                        └─► GRAPH_*.py  ──► results/cd_142/gexf/
+Database/no_duplicate/
+    └─► Machin_learning/transition_matrix.py      ──► results/numpy/transition_matrix_*.npy
+            └─► transition_emtropy.py             ──► user_entropies_{merge}.npy
+                    ├─► transition_entropy_by_period.py
+                    ├─► maximal_previsibility.py  (P^max, importé partout ailleurs)
+                    └─► plot_from_csv/plot_hist_entropy*.py, plot_entropies_by_*.py
 ```
 
-### Pipeline 2 — Classification des utilisateurs (déjà exécuté)
+### Pipeline 3 — Baseline Markov
 
 ```
-no_duplicate/
-    └─► 4_user_classification.py
-            └─► results/cd_142/intermediate_result/cell_classification*.csv
-                    ├─► 4_count_user_by_category.py
-                    ├─► 4_plot_timestamp_distribution_by_class.py
-                    └─► (réutilisé par les modèles de prédiction)
+Database/no_duplicate/
+    ├─► markov_baseline.py             ──► markov_accuracy_no_merge.npy
+    └─► markov_sequential_prediction.py ──► markov_sequential_accuracy_no_merge.npy
+            └─► plot_markov_vs_pmax.py / plot_markov_sequential_by_day.py / plot_markov_methods_comparison.py
 ```
 
-### Pipeline 3 — Prédiction de la prochaine cellule (à régénérer)
+### Pipeline 4 — VOMM et bornes de prévisibilité
 
 ```
-no_duplicate/  (+ classification)
-    └─► 0_make_full_dataset_from_class_or_weekend.py   (optionnel : filtrage classe / week-end)
-    └─► 1_train_test_split.py          ──► train_random.csv / test_random.csv
-            ├─► 3_deduplicate_csv.py   ──► versions sans répétitions consécutives
+Database/no_duplicate/
+    └─► 1_train_test_split.py ──► train_random.csv / test_random.csv
+            ├─► 3_deduplicate_csv.py       ──► removed_repeat/*.csv   (requis par les pipelines VOMM)
             └─► 2b_create_train_ngrams_matrix.py ──► ngrams_matrix_train_random.json
-                    └─► VOMM_prediction_pipeline.py ──► metrics/*.json
-                            └─► PLOT_VOMM_metrics_by_discount.py
+                    ├─► VOMM_prediction_pipeline.py / NAIVE_prediction_pipeline.py ──► metrics/*.json
+                    │       └─► PLOT_VOMM_metrics_by_discount.py
+                    ├─► COMPARE_markov_vs_vomm.py
+                    └─► PREDICTABILITY_vs_accuracy.py / _by_order_calendar.py
+                        / _heldout_bound.py / _lempelziv_bound.py
 ```
 
-### Pipeline 4 — Prédiction de mouvement (chantier en cours)
+### Pipeline 5 — Prédiction de mouvement
 
 ```
-no_duplicate_merge_2g3g/  (cellules fusionnées, classe 1)
-    └─► 1_train_test_split.py  ──► class1_train_random.csv / class1_test_random.csv
-            └─► MOVEMENT_PREDICTION_extract_features[_V2].py ──► features/*.csv
-                    └─► MOVEMENT_PREDICTION_fit_features[_V2].py ──► XGBoost + RandomForest
-                            └─► MOVEMENT_PREDICTION_analyze_features_usage.py  (SHAP)
-                    └─► MOVEMENT_PREDICTION_train_lstm.py   (variante séquentielle)
+Database/no_duplicate_merge_2g3g/  (cellules fusionnées)
+    └─► MOVEMENT_PREDICTION_extract_features[_V2].py ──► features CSV
+            ├─► MOVEMENT_PREDICTION_fit_features[_V2].py ──► XGBoost / RandomForest + figures
+            │       └─► MOVEMENT_PREDICTION_analyze_features_usage.py  (SHAP)
+            └─► MOVEMENT_PREDICTION_train_lstm.py
 ```
 
-### Pipeline 5 — Deep learning (infrastructure prête, pas de résultat)
+### Pipeline 6 — Deep learning
 
 ```
-no_duplicate_max_512_records/
-    └─► create_cellid_map.py                ──► cell_map.json
-    └─► encode_and_convert_csv_to_pytorch.py ──► encoded_{train,val,test}.pt
-            └─► train.py ──► checkpoints/
-                    └─► test.py   ⚠️ VIDE — à écrire
+Database/no_duplicate_max_512_records/
+    └─► create_cellid_map.py                 ──► cell_map*.json
+            └─► encode_and_convert_csv_to_pytorch.py ──► encoded_{train,val,test}.pt
+                    └─► train.py ──► results/predictions/deep_learning/checkpoints/
 ```
 
 ---
 
-## 6. Conventions, pièges et prérequis
+## 7. Résultats acquis — à ne pas refaire
 
-### Conventions de nommage (issues de [python/README.md](python/README.md))
+### Markov d'ordre 1 sur le dataset complet
 
-| Préfixe | Signification |
+Configuration : seuil de gap 4 h 10, utilisateurs à **entropie nulle exclus** (ils n'ont jamais quitté une seule cellule ; Fano leur donne P^max = 1 par convention et ils gonflent les moyennes). 803 530 utilisateurs prédits → **740 029 conservés**.
+
+| Mesure | Valeur |
 |---|---|
-| `generate` / `GENERATION_` | Produit des variantes du dataset |
-| `get` / `create` / `STATS_` | Produit des `.json` et `.csv` |
-| `plot` / `PLOT_` | Produit des `.png` (matplotlib) ou `.html` (plotly) |
-| `special` | Analyse ponctuelle d'une anomalie |
-| `GRAPH_` | Manipulation de graphes |
-| `MOVEMENT_PREDICTION_` / `VOMM_` / `NAIVE_` | Chantiers de prédiction |
-| `0_`, `1_`, `2a_`… | Ordre d'exécution du pipeline |
+| Accuracy séquentielle (causale) | **0.555** (médiane 0.571) |
+| Accuracy split aléatoire 70/30 | 0.592 |
+| P^max moyen (via S_unc) | 0.575 |
+| Corrélation accuracy / P^max | **0.844** |
+| Utilisateurs avec accuracy > P^max | 38,8 % |
 
-**Règles à respecter** si vous ajoutez du code :
-- La ou les premières lignes du script **doivent décrire ce qu'il fait**.
-- Les chemins d'entrée/sortie **doivent se résoudre à partir de la position du script** :
-  ```python
-  MAIN_DIR = Path(__file__).parent.parent.parent   # ajuster le nombre de .parent
-  ```
+Deux enseignements : **voir seulement le passé ne coûte que ~3,6 points d'accuracy** (le prix honnête de la contrainte causale, et il est modeste), et la corrélation de 0.844 montre que le modèle réussit là où la théorie prédit qu'il peut réussir.
 
-### ⚠️ Piège n°1 : deux styles d'import incompatibles
+**Effet week-end net** : accuracy 0.593 le week-end contre 0.544 en semaine (P^max 0.609 vs 0.564). Les gens sont plus prévisibles le week-end — cohérent avec les profils week-end distincts déjà vus en classification.
 
-Le dépôt mélange deux conventions, et **elles n'exigent pas le même répertoire de lancement** :
+### Limite méthodologique importante
 
-| Style | Fichiers concernés | Comment lancer |
-|---|---|---|
-| `import python.cd_142.analysis.utils as utils` | 14 scripts de `cd_142/analysis/` (`GENERATION_*`, `STATS_*`, `GRAPH_*`, certains `plot_*`) | **depuis la racine du dépôt**, ex. `python -m python.cd_142.analysis.STATS_get_most_recorded_cells` |
-| `import utils` | tout le reste (`cd_010/`, `dataset_creation/`, `important_cells_work/`, `simple_predictor/`, `final_python/`) | **depuis le dossier du script** |
+38,8 % des utilisateurs dépassent leur P^max, et ce **n'est pas une erreur** : ce P^max dérive de **S_unc**, l'entropie *non corrélée*, qui ne connaît que la distribution des fréquences de visite. Fano appliqué à S_unc donne le plafond d'un prédicteur **sans mémoire**. Or Markov exploite l'**ordre** — exactement l'information que S_unc jette. Le dépasser est donc attendu ; c'est même le point central de Song et al. (Π^unc < Π^max).
 
-Deux fichiers du **même dossier** peuvent différer : `plot_records_distribution.py` utilise `import utils` alors que ses voisins utilisent le chemin complet. **En cas de `ModuleNotFoundError`, c'est presque toujours ça.** Uniformiser les imports serait un bon premier chantier de nettoyage.
+À présenter comme *« comparaison au plafond d'un prédicteur sans mémoire »*, jamais comme une borne absolue. C'est précisément ce trou méthodologique que les scripts `PREDICTABILITY_*` sont venus combler ensuite (entropie conditionnelle, held-out, Lempel-Ziv).
 
-### ⚠️ Piège n°2 : le nombre de `.parent`
+### Mesure de contexte
 
-`MAIN_DIR` compte un nombre de `.parent` qui **dépend de la profondeur du script**. Un script déplacé d'un dossier casse silencieusement (il écrira ses sorties au mauvais endroit). Certains scripts déduisent aussi le nom du dataset du nom du dossier parent :
+Sur l'ensemble de `no_duplicate` (15 jours), **72,0 % des enregistrements consécutifs sont dans la même cellule** — le nettoyage « no_duplicate » ne supprime pas les répétitions consécutives. *(Le chiffre de 43,6 % longtemps cité ici avait été mesuré sur `sample_for_training`, échantillon à forte entropie : il n'est pas représentatif.)* Sur un jour de cet échantillon difficile (42 133 transitions) :
 
-```python
-dataset_name = Path(__file__).parent.parent.name   # → "cd_142"
-```
-
-Renommer un dossier casse donc les chemins.
-
-### ⚠️ Piège n°3 : les données ne sont pas dans git
-
-`.gitignore` exclut `Database/`, `results/`, `Docs/`, `QGIS/`, `cd_010_work/`, `cd_142_work/`. **331 fichiers seulement sont versionnés** : le code, `Database/cells/`, `final_python/` et `final_results/`.
-
-Concrètement, en repartant d'un clone propre, il faut :
-1. récupérer `Database/cd_142_dataset/raw_dataset/` (4,4 Go, hors dépôt) ;
-2. relancer `GENERATION_generate_all_csv.py` pour reconstruire les variantes ;
-3. relancer les pipelines 2 à 5 pour reconstituer `results/`.
-
-**Et même sur la machine actuelle, `results/predictions/` n'existe pas** : tous les splits, matrices de n-grammes et métriques de prédiction doivent être régénérés (pipeline 3).
-
-### ⚠️ Piège n°4 : temps de calcul et mémoire
-
-| Traitement | Coût |
+| Stratégie | Accuracy |
 |---|---|
-| `4_create_train_ngrams_with_time.py` | ~1 h + beaucoup de RAM |
-| `5_correlation_time.py` | 30 min – 1 h + beaucoup de RAM |
-| `cd_010/plot_timestamp_distribution.py` | ~45 min (16 Go de RAM) |
-| `GENERATION_generate_all_csv.py` (variante `with_distance`) | ~20 min |
-| `MOVEMENT_PREDICTION_extract_features.py` | 20–40 min selon la version |
-| `deep_learning/train.py` | ~27 min / epoch |
+| Implémentation d'alors (fallback = cellule la plus fréquente) | 0.313 |
+| « l'utilisateur ne bouge pas » (baseline triviale) | **0.434** |
+| Markov + fallback « ne bouge pas » | 0.425 |
+| Markov + fallback + départage des ex æquo vers « rester » | 0.437 |
 
-### Dépendances
+Et **32,9 % des prédictions sont en cold-start** (cellule de départ jamais vue). Corriger le fallback cold-start (prédire la cellule actuelle plutôt que le mode global) valait **+0.11 d'accuracy** sur le jour testé.
 
-Il n'y a **pas de `requirements.txt`** (à créer). D'après les imports :
-
-```
-pandas · numpy · matplotlib · seaborn · plotly · tqdm
-geopy                    (distances géodésiques)
-networkx · cdlib         (graphes et détection de communautés)
-scikit-learn · xgboost · joblib · shap   (prédiction de mouvement)
-torch                    (deep learning)
-```
-
-Environnement configuré sous **conda** (cf. [.vscode/settings.json](.vscode/settings.json)). Les `.pyc` présents indiquent **Python 3.14**.
-
----
-
-## 7. État d'avancement et pistes de reprise
-
-### Ce qui est solide et réutilisable
-
-- **La compréhension du dataset** : distributions, anomalies, temps passé par cellule, cellules populaires. Toutes les figures sont dans `final_results/` et les chiffres dans `results/cd_142/json/`.
-- **La classification des utilisateurs en 20+ classes de présence** (`4_user_classification.py`) — c'est le socle de tout ce qui suit ; la classe 1 (présence sur les 6 fenêtres) sert de population de référence.
-- **La chaîne de génération des variantes du dataset** — bien factorisée, un simple booléen pour ajouter une variante.
-- **Le modèle VOMM** avec backoff par *absolute discounting*, sa chaîne d'évaluation et son jeu de métriques.
-
-### Ce qui a été tenté sans succès (ne pas refaire)
+### Ce qui a été tenté sans succès (documenté, ne pas refaire)
 
 | Piste | Où c'est documenté |
 |---|---|
 | Corréler le délai du contexte au délai de la prochaine transition | En-tête de `5_correlation_time.py`, en gros caractères |
-| Apprendre un poids par (heure, cellule) par descente de gradient | `train_time_weight.py`, commit `eeda5b6` |
-| Graphes construits par station de base plutôt que par cellule | Commit `9ae354d` : *« turned out the graphs are less meaningful this way »* |
-| Features V4 pour la prédiction de mouvement | Commit `57ad37e` : *« not so good »* |
-
-### Ce qui reste ouvert
-
-1. **Prédiction de mouvement** — c'est là que le travail s'est arrêté. Les V1/V2 de features existent, la V4 a régressé. L'analyse SHAP (`MOVEMENT_PREDICTION_analyze_features_usage.py`) est l'outil à mobiliser pour comprendre **pourquoi** : elle isole les features dominantes sur les faux positifs et faux négatifs.
-2. **Transformer** — infrastructure complète mais `test.py` et `loss.py` sont **vides**. Il manque toute l'évaluation. C'est la tâche la plus rapidement rentable : le modèle et l'entraînement existent déjà.
-3. **`VOMM_V5`** — le boost domicile/activité et le profil utilisateur sont **implémentés mais désactivés** dans le pipeline (`home_cell_boost`, `decay`, `alpha_profile` sont commentés dans `VOMM_prediction_pipeline.py` avec la mention *« Need more test »*). Un balayage de ces hyperparamètres est un travail immédiat et peu coûteux.
-4. **Le catalogue d'expériences commentées** en fin de `VOMM_prediction_pipeline.py` (10 configurations : par classe, semaine/week-end, fusionné, dédupliqué) n'a jamais été exécuté de bout en bout de façon comparable. Les lancer toutes et les mettre dans un même tableau donnerait la première vue d'ensemble des performances.
-5. **Dette technique** : uniformiser les imports (piège n°1), écrire un `requirements.txt`, et remplacer le pilotage par commentaires/décommentaires par de vrais arguments en ligne de commande ou un fichier de configuration.
-
-### Chronologie du travail (repères git)
-
-| Période | Travail |
-|---|---|
-| 24/03 → 09/04/2026 | Mise en place, analyse statistique globale, distances, dashboards |
-| 09/04 → 04/05/2026 | Cellules domicile/activité, itérations successives sur les définitions, classification des utilisateurs |
-| 04/05 → 22/05/2026 | Matrices de transition et n-grammes, splits train/test, encodage PyTorch, Transformer |
-| 19/05 → 08/06/2026 | Modèles VOMM (V1 → V5), métriques, puis bascule vers la prédiction de mouvement |
-| 30/06/2026 | Dernier commit (`Updated`) — mise au propre de `final_python/` et `final_results/` |
+| Apprendre un poids par (heure, cellule) par descente de gradient | `train_time_weight.py` |
+| Estimer P^max par ordre avec l'entropie plug-in sur une seule journée | `PREDICTABILITY_by_order_calendar.py` : l'entropie s'effondre et P^max → 1 dès k ≥ 2. C'est ce qui a motivé la version held-out |
+| Une méthode heuristique de score move/stay combinant les features à la main | Supprimée de `models.py` (voir §9) : remplacée par l'apprentissage XGBoost |
 
 ---
 
-## 8. Par où commencer concrètement
+## 8. Bugs trouvés et corrigés (historique à connaître)
 
-1. **Regarder les figures** de `final_results/` (heatmap des timestamps, distribution des enregistrements, répartition des classes) — 10 minutes pour se faire une idée du dataset.
-2. **Lire [results/README.md](results/README.md)** — il documente chaque fichier de sortie et le script qui l'a produit.
-3. **Lire `4_user_classification.py`** — la fonction `classify()` définit le vocabulaire (« classe 1 », « classe 6 »…) employé partout ailleurs.
+Ces corrections **invalident des chiffres produits avant elles**. Si vous retrouvez d'anciens résultats, vérifiez de quel côté de ces corrections ils tombent.
+
+1. **Le N de l'inégalité de Fano.** `P^max` était calculé avec `N` = *nombre de records* de l'utilisateur, alors que Fano attend `N` = *nombre d'états distincts* (cellules distinctes visitées, + `outside` le cas échéant). Sur 2 731 utilisateurs du 12/03 : N moyen 145.6 → **10.6**, P^max moyen 0.767 → **0.580**, part des utilisateurs > 0.8 : 42,6 % → **8,1 %**. `transition_emtropy.py` stocke désormais `n_states` comme 5ᵉ champ du `.npy`, et `maximal_previsibility.py` lève une erreur explicite sur l'ancien format.
+
+2. **L'intervalle de recherche de `brentq`.** Révélé par la correction précédente. La racine était cherchée sur `[1e-10, 1-1e-10]`, où la fonction de Fano a le **même signe aux deux bornes** dès que `S > log2(N-1)` — donc **toujours pour N = 2**. `brentq` levait `ValueError` et la fonction renvoyait silencieusement `NaN`, sur **37,8 %** des utilisateurs une fois le N corrigé. Corrigé en bornant sur `[1/N, 1]`, où le changement de signe est garanti et où la racine a un sens (prévisibilité au moins égale au hasard). Après correction : **0 NaN**.
+
+3. **Le back-off du VOMM sautait l'ordre 1.** `_recursive_prob` s'arrêtait à `order == 1` en renvoyant directement l'unigramme, si bien que `train_data[1]` (les vrais comptages « une cellule → cellule suivante ») n'était **jamais consulté** pour le calcul de probabilité : la récursion passait de l'ordre 2 directement à l'unigramme sans contexte. `VOMM_V4` avait déjà la bonne borne (`order == 0`) ; `VOMM` et `VOMM_V5` ont été alignés dessus. **Toutes les métriques VOMM produites avant cette correction sont à relancer.**
+
+---
+
+## 9. Dette technique — état après nettoyage
+
+**Corrigé :**
+
+- `Metrics.top_k_accuracy` et `map_k` étaient **définies deux fois** chacune (la 2ᵉ écrasant silencieusement la 1ʳᵉ) → une seule définition, documentée.
+- `convert_lat_lon_distance_to_meter` était défini **deux fois avec des signatures différentes** dans `simple_predictor/utils.py` → une seule, alignée sur les autres copies du dépôt.
+- `MovementPredictor.predict_movement` appelait `extract_features` avec 4 arguments (elle en prend 2) et lisait des features d'une ancienne version qui n'existent plus → **méthode supprimée**, la décision move/stay étant apprise par XGBoost / LSTM.
+- `VOMM_single_prediction.py` utilisait une API obsolète (`VOMM(counts=…, context_totals=…)`, `prepare_ngrams(computed_ngrams_filepath=…)`) et ne tournait plus → **réécrit** contre l'API actuelle, avec vérification des prérequis.
+- `N_CELLS = 369` était **codé en dur** dans `deep_learning/train.py` → lu depuis `cell_map_start_1.json`, le mapping qui a servi à encoder les `.pt` (les deux ne peuvent plus diverger).
+- `deep_learning/loss.py` et `test.py` étaient **vides** → supprimés (la loss est définie dans `train.py`).
+- `separate_data_by_letter_code` (`utils.py`) levait un `IndexError` quand la colonne `letters` ne contenait aucune valeur manquante, et filtrait en dur sur `"letters"` en ignorant son paramètre `column_name` → corrigé dans les deux copies.
+- Import mort `from typing import Counter` qui masquait `collections.Counter` dans `STATS_get_start_sequece.py` → supprimé.
+
+**Restant :**
+
+- **Trois marges de gap différentes** (4h+30s / 4h+60s / 4h+10min) selon les dossiers. Valeurs conservées telles quelles pour ne pas invalider les résultats existants, mais les commentaires trompeurs qui prétendaient qu'elles étaient identiques ont été corrigés. À unifier un jour, en connaissance de cause.
+- **Code volontairement dupliqué** : `utils.py` existe en 3 copies (racine, `important_cells_work/`, `simple_predictor/`), et `get_cell_code` / `MERGE` / `get_day` sont recopiés dans presque chaque script. Modifier l'un impose de vérifier les autres.
+- **Pas de `requirements.txt`.** Dépendances relevées dans les imports : `numpy`, `pandas`, `matplotlib`, `seaborn`, `scipy`, `tqdm`, `geopy`, `folium`, `plotly`, `scikit-learn`, `xgboost`, `shap`, `joblib`, `torch`.
+- **Pilotage par commentaires.** Les configurations d'expérience sont activées en décommentant des blocs : l'historique des runs n'est pas rejouable en un clic, et deux résultats ne sont pas garantis d'avoir été produits avec les mêmes réglages.
+- **Pas d'évaluation du Transformer.** `train.py` a une fonction `evaluate()` interne, mais rien ne produit de métriques de test comparables à celles du VOMM.
+
+---
+
+## 10. Chantiers ouverts
+
+1. **Relancer les métriques VOMM** après la correction du back-off (§8.3) — c'est le préalable à toute comparaison.
+2. **Un tableau de comparaison unifié.** Le livrable qui manque : tous les modèles (Markov d'ordre fixe, VOMM, VOMM+boosts, Transformer, classifieur move/stay) sur **le même split de test** et les mêmes métriques (ACC@1/3/5, MAP@k, log-loss). `COMPARE_markov_vs_vomm.py` en donne le patron : c'est le seul script qui garantit déjà des points de prédiction identiques entre deux modèles.
+3. **Aller au bout du Transformer** : il n'est configuré que pour 3 epochs, et il n'a pas de procédure d'évaluation. Récupérer son ACC@1 dira si le coût du deep learning se justifie sur seulement 2 semaines de données.
+4. **Prédicteur en deux étages.** Étant donné les 72 % de self-transitions, un étage 1 « bouge / bouge pas » (le classifieur move/stay existe déjà) suivi d'un étage 2 « où ? » (VOMM, seulement quand un mouvement est prédit) est la piste la plus prometteuse pour améliorer l'ACC@1.
+5. **Exploiter les bornes held-out et Lempel-Ziv** : maintenant qu'elles existent, comparer l'accuracy des modèles à ces plafonds-là (et non plus au seul P^max issu de S_unc) donne enfin une lecture méthodologiquement correcte de « à quelle distance de l'optimum on est ».
+6. **Évaluer les poids temporels** (`train_time_weight.py`) face au VOMM nu, ou acter leur abandon.
+
+---
+
+## 11. Par où commencer concrètement
+
+1. **Lire le §3 (format des données)** — sans ça, rien du code n'est lisible ; l'idiome `line[8::2]` / `line[9::2]` est partout.
+2. **Lire [NOTES_prediction_prochaine_station.md](Python/Machin_learning/NOTES_prediction_prochaine_station.md)** — le raisonnement complet sur la prévisibilité, les deux protocoles d'évaluation et leurs limites.
+3. **Lire `generalised_classification_users.py`** — il définit le vocabulaire de classes d'utilisateurs employé ailleurs.
 4. **Lire `models.py` de `simple_predictor/`**, en particulier `VOMM._recursive_prob()` — c'est le cœur mathématique du projet.
-5. **Vérifier la présence des données** : `Database/cd_142_dataset/raw_dataset/` doit contenir 15 fichiers. Sinon, tout le reste est bloqué.
-6. **Régénérer `results/predictions/`** en exécutant le pipeline 3 (§5), pour retrouver un état où les modèles tournent.
+5. **Vérifier la présence des données** : `Database/no_duplicate/` doit contenir 15 fichiers. Sinon tout le reste est bloqué (les variantes du dataset ne sont plus régénérables par un script du dépôt).
+6. **Vérifier `results/predictions/`** avant de lancer un pipeline de prédiction : `train_test/`, `simple_predictor/transition_matrix/` et les métriques doivent exister, sinon relancer le pipeline 4 (§6).

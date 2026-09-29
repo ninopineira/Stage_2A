@@ -25,7 +25,11 @@ N_DAYS       = 15
 N_USERS      = 2000
 MIN_RECORDS  = 10
 MAX_RECORDS  = 200
-GAP_LIMIT    = 4 * 3600 + 60  # 4h (+60s buffer, same threshold used elsewhere in the project)
+# Attention : le projet utilise trois marges différentes autour de 4h — 4h+30s
+# (dataset_creation, MAX_DELTA), 4h+60s (ici) et 4h+10min (Machin_learning, GAP_LIMIT).
+# Elles ne sont donc PAS interchangeables ; ne pas supposer que ce seuil est le même
+# que celui de markov_baseline.py en comparant des populations d'utilisateurs.
+GAP_LIMIT    = 4 * 3600 + 60  # 4h + 60s de marge
 
 
 def get_day(filepath: Path) -> str:
