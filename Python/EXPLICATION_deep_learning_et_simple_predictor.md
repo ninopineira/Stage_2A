@@ -14,7 +14,7 @@ de records, `line[5]`/`line[6]` = home/activity cell.
 > Note : ces dossiers proviennent du dépôt d'un ancien collaborateur, organisé par zone
 > géographique (`Database/cd_142_dataset/…`). Une seule zone ayant été conservée,
 > l'arborescence a été aplatie ; d'anciens chemins peuvent subsister dans des
-> commentaires. Voir [RESUME_PROJET.md](../RESUME_PROJET.md) §2 et [CLAUDE.md](../CLAUDE.md).
+> commentaires. Voir le [README](../README.md) §3.
 
 ---
 
