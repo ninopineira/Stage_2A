@@ -264,6 +264,7 @@ dans `.gitignore`.
 | Script | Rôle |
 |---|---|
 | `utils.py` | Boîte à outils commune : ouverture de CSV avec/sans en-tête (`open_csv_as_dataframe`, `has_header`), `get_day()`, `is_weekend()`, distances géodésiques (`geopy`), `compute_distance_travelled_by_user()`, séparation par code `letters`, helpers QGIS/GeoJSON (trajectoires). |
+| `STATS_dataset_volume.py` | **Table de référence des volumes** jour par jour (utilisateurs-jours, enregistrements, part même cellule, BS1/BS2), distribution de `n_records`, heat map des enregistrements par tranche de 10 min (anomalie du 21/03), intervalles entre enregistrements (pic à 4 h, comptages aux trois marges de gap), effet des trois fusions → `results/intermediate_result/dataset_volume_{by_day,summary}.csv`, `results/plots/records_per_{user_day_hist,minute_by_day}.png` |
 | `STATS_use_cell_by_hour.py` | Fréquence d'utilisation de chaque cellule **heure par heure** (nombre d'utilisateurs présents et nombre de connexions), pour les 3 modes de fusion → `results/intermediate_result/stats_(use_cell\|connections_cell)_by_hour*.csv`. **Base de la classification des antennes.** |
 | `STATS_get_start_sequece.py` | Proportion des antennes qui servent d'**entrée** ou de **sortie** de la zone d'étude. |
 | `sample_for_training.py` | Construit `Database/sample_for_training` : les N utilisateurs de **plus forte entropie** par jour (10–200 records, sans trou > 4 h). ⚠️ Population volontairement difficile, voir §8. |
@@ -323,6 +324,9 @@ les rend rapides à itérer.
 - **`make_report_figures.py`** rassemble toutes les figures des rapports dans `rapport/figures/`
   (copies, deux composites d'activité, capture Chrome sans interface de la carte folium). **À
   relancer après toute régénération de figure.**
+- `plot_handover_illustration.py` : schéma d'illustration de l'introduction du rapport anglais
+  (handover réactif vs prédictif, motivation 6G). Courbes **illustratives** (modèle de
+  propagation d'école), aucune donnée lue.
 - `clean_old_plots.py` supprime les PNG produits sous d'anciennes conventions de nommage.
 
 ### 6.5 `dataset_creation/` — préparation pour la prédiction
@@ -404,6 +408,8 @@ faux. C'est la mesure directe du biais d'immobilité.
 | `PREDICTABILITY_by_order_calendar.py` | P^max conditionnel et ACC@1 **par ordre k = 1..5**, en calendriers de scatter (un panneau par jour). Utilise `NaiveMarkovChain(order=k)` (Markov pur, sans lissage), qui conditionne sur exactement k cellules. Montre **délibérément** l'artefact de sur-apprentissage : quand k grandit, S_cond → 0 et P^max → 1. |
 | `PREDICTABILITY_heldout_bound.py` | Corrige cet artefact par une **entropie held-out** (validation croisée, lissage de Laplace `ALPHA = 1` + back-off vers l'unigramme). La cross-entropie surestime l'entropie vraie, donc la borne est **conservatrice** — c'est le bon comportement. |
 | `PREDICTABILITY_lempelziv_bound.py` | Borne **Lempel-Ziv** (Song et al. 2010), déclinée par ordre maximal en plafonnant la longueur des correspondances. ⚠️ L'estimateur converge lentement : lire les moyennes par jour, pas les valeurs par utilisateur. |
+| `PREDICTABILITY_lempelziv_control.py` | Expérience de contrôle de l'estimateur Lempel-Ziv sur des séquences aléatoires d'entropie connue (3 bits) : 2,65 bits à 80 symboles, encore 2,84 à 80 000. Aucun prérequis |
+| `PREDICTABILITY_toy_example.py` | Exemple chiffré de la synthèse des entropies du rapport anglais : toutes les entropies du projet (S_rand, S_unc, plug-in, held-out, Lempel-Ziv) calculées sur une même journée inventée de 22 enregistrements, avec les fonctions du projet. Aucun prérequis, n'écrit rien |
 
 #### C. Prédiction de mouvement (`MOVEMENT_PREDICTION_*`)
 
@@ -791,7 +797,7 @@ Autres corrections déjà faites (ne pas re-signaler) :
 **Rapports (`rapport/`, non versionné) :**
 
 - `rapport_stage_2A.tex` (français, ~31 p.) et `report_detailed_en.tex` (anglais, détaillé,
-  ~67 p.). Compilation : `pdflatex` **deux fois** (références). Les figures absentes s'affichent
+  ~101 p.). Compilation : `pdflatex` **deux fois** (références). Les figures absentes s'affichent
   en cadre gris. Les figures sont rassemblées par `plot_from_csv/make_report_figures.py`.
 - Les deux rapports doivent rester **cohérents entre eux** (mêmes chiffres, même bibliographie).
 - **Bibliographie** : uniquement des travaux lus en entier — Song et al. 2010, Gambs et al. 2012,

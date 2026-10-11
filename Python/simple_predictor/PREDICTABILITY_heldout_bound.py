@@ -70,6 +70,8 @@ DAYS_TO_RUN = None          # None = all 15 days; set an int to test fewer
 
 N_FOLDS = 5                 # cross-validation folds for the held-out entropy
 ALPHA = 1.0                 # Laplace add-alpha smoothing
+# True = skip the 15-day pass and redraw the figures from the saved per-user CSV.
+REPLOT_FROM_CSV = False
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 DAY_COLORS = {0: '#1f77b4', 1: '#ff7f0e', 2: '#2ca02c', 3: '#9467bd',
@@ -220,6 +222,15 @@ def _calendar_positions(days):
     return dates, pos, max(r for r, _ in pos.values()) + 1
 
 
+def summarise_day(dfd):
+    return {
+        "n": len(dfd),
+        "acc": {k: dfd[f"acc_{k}"].mean() for k in ORDERS},
+        "pmax_plugin": {k: dfd[f"pmax_plugin_{k}"].mean() for k in ORDERS},
+        "pmax_heldout": {k: dfd[f"pmax_heldout_{k}"].mean() for k in ORDERS},
+    }
+
+
 def plot_demonstration_calendar(day_summary):
     """The headline figure: per day, mean P^max (plug-in vs held-out) and mean
     accuracy across orders 1..5. Shows the plug-in inflating to 1 while the
@@ -250,8 +261,16 @@ def plot_demonstration_calendar(day_summary):
         ax.set_ylim(0, 1)
         ax.grid(True, ls="--", alpha=0.3)
 
+    # sharey hides the y tick labels of every panel but the first of each row, and
+    # the first calendar cells are empty: label the first VISIBLE panel of each row.
+    for r in range(n_rows):
+        first_col = min(c for d, (rr, c) in pos.items() if rr == r)
+        axes[r, first_col].tick_params(labelleft=True)
+
+    # The dataset starts on a Wednesday: the legend goes in the two empty cells of
+    # the first week instead of covering the title of the last panel of the row.
     h, l = axes[pos[days[0]][0], pos[days[0]][1]].get_legend_handles_labels()
-    fig.legend(h, l, loc="upper right", fontsize=11)
+    fig.legend(h, l, loc="upper left", bbox_to_anchor=(0.03, 0.93), fontsize=11)
     fig.supxlabel("Markov order k")
     fig.supylabel("Value (mean over the day's users)")
     fig.suptitle("Held-out bound vs in-sample plug-in vs accuracy, per order and per day",
@@ -354,41 +373,40 @@ def plot_orders_parallel_heldout(df, day, tag):
 
 
 if __name__ == "__main__":
-    check_inputs()
-    t0 = time.time()
-
-    with open(TRAIN_DATA_PATH, "r", encoding="utf-8") as f:
-        train_data = json.load(f)
-    print("Building order-1..5 Markov models...")
-    markov_models = {k: NaiveMarkovChain(order=k, train_data=train_data) for k in ORDERS}
-
-    day_files = sorted(DATASET_DIR.glob("*.csv"))
-    if DAYS_TO_RUN is not None:
-        day_files = day_files[:DAYS_TO_RUN]
-
-    all_records = []
-    day_summary = {}
-    for day_file in tqdm.tqdm(day_files, desc="Days"):
-        day = get_day(day_file)
-        recs = process_day(day, load_day_test_users(day_file), markov_models)
-        all_records.extend(recs)
-        dfd = pd.DataFrame(recs)
-        day_summary[day] = {
-            "n": len(dfd),
-            "acc": {k: dfd[f"acc_{k}"].mean() for k in ORDERS},
-            "pmax_plugin": {k: dfd[f"pmax_plugin_{k}"].mean() for k in ORDERS},
-            "pmax_heldout": {k: dfd[f"pmax_heldout_{k}"].mean() for k in ORDERS},
-        }
-        acc = " ".join(f"k{k}:{day_summary[day]['acc'][k]:.2f}" for k in ORDERS)
-        pin = " ".join(f"k{k}:{day_summary[day]['pmax_plugin'][k]:.2f}" for k in ORDERS)
-        pho = " ".join(f"k{k}:{day_summary[day]['pmax_heldout'][k]:.2f}" for k in ORDERS)
-        print(f"  {day} n={len(dfd):5d}  ACC[{acc}]  Pmax_plugin[{pin}]  Pmax_heldout[{pho}]")
-
-    df = pd.DataFrame(all_records)
     per_user_csv = OUTPUT_DIR / "predictability_heldout_per_user.csv"
-    df.to_csv(per_user_csv, sep=";", index=False)
-    print(f"\nPer-user table -> {per_user_csv}")
-    print(f"Compute time: {time.time() - t0:.1f}s")
+
+    if REPLOT_FROM_CSV:
+        df = pd.read_csv(per_user_csv, sep=";")
+        day_summary = {day: summarise_day(dfd) for day, dfd in df.groupby("day")}
+    else:
+        check_inputs()
+        t0 = time.time()
+
+        with open(TRAIN_DATA_PATH, "r", encoding="utf-8") as f:
+            train_data = json.load(f)
+        print("Building order-1..5 Markov models...")
+        markov_models = {k: NaiveMarkovChain(order=k, train_data=train_data) for k in ORDERS}
+
+        day_files = sorted(DATASET_DIR.glob("*.csv"))
+        if DAYS_TO_RUN is not None:
+            day_files = day_files[:DAYS_TO_RUN]
+
+        all_records = []
+        day_summary = {}
+        for day_file in tqdm.tqdm(day_files, desc="Days"):
+            day = get_day(day_file)
+            recs = process_day(day, load_day_test_users(day_file), markov_models)
+            all_records.extend(recs)
+            day_summary[day] = summarise_day(pd.DataFrame(recs))
+            acc = " ".join(f"k{k}:{day_summary[day]['acc'][k]:.2f}" for k in ORDERS)
+            pin = " ".join(f"k{k}:{day_summary[day]['pmax_plugin'][k]:.2f}" for k in ORDERS)
+            pho = " ".join(f"k{k}:{day_summary[day]['pmax_heldout'][k]:.2f}" for k in ORDERS)
+            print(f"  {day} n={day_summary[day]['n']:5d}  ACC[{acc}]  Pmax_plugin[{pin}]  Pmax_heldout[{pho}]")
+
+        df = pd.DataFrame(all_records)
+        df.to_csv(per_user_csv, sep=";", index=False)
+        print(f"\nPer-user table -> {per_user_csv}")
+        print(f"Compute time: {time.time() - t0:.1f}s")
 
     plot_demonstration_calendar(day_summary)
 

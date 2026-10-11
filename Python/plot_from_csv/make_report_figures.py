@@ -6,6 +6,7 @@
 #   - plain copies for most figures;
 #   - two composites (activity-cell comparison) assembled from the plots of
 #     important_cells_work/2_activity_cells_results_against_dataset.py;
+#   - one crop (the threshold sweep, whose right-hand panel is empty when only XGBoost is fitted);
 #   - a headless-Chrome screenshot of the folium entry/exit map.
 #
 # Figures not listed here (antenne_kvare_*.png) were made by hand and are left untouched.
@@ -26,10 +27,14 @@ MV = "predictions/movement_prediction_V2/plots_V1"
 ACT = "intermediate_result/activity_cells_comparison/plots"
 
 COPIES = {
+    "handover_predictif.png": "plots/handover_reactive_vs_predictive.png",
     "occupation_horaire.png": "plots/stats_connections_cell_by_hour_by_day.png",
     "presence_par_jour.png": "plots/sum_by_day_user_presence.png",
     "classification_utilisateurs.png": "plots/classification_by_presence_5_clusters.png",
     "antennes_centroides.png": "2014-03-12/cluster_centroids_heatmap.png",
+    "antennes_centroides_20_mars.png": "2014-03-20/cluster_centroids_heatmap.png",
+    "distribution_enregistrements.png": "plots/records_per_user_day_hist.png",
+    "anomalie_21_mars.png": "plots/records_per_minute_by_day.png",
     "song_replication.png": "plots/song_replication_no_merge.png",
     "entropie_par_periode.png": "plots/entropy_by_period_no_merge.png",
     "markov_methods_by_day.png": "plots/markov_methods_by_day.png",
@@ -54,6 +59,11 @@ COMPOSITES = {
                                                     f"{ACT}/03_coverage_by_day.png"]),
     "activity_algos_agreement.png": ("horizontal", [f"{ACT}/04_cross_agreement_heatmap.png",
                                                     f"{ACT}/05_breakdown_per_day_per_method.png"]),
+}
+
+CROPS = {
+    # name: (source, (left, top, right, bottom) as fractions of the source image)
+    "movestay_threshold_xgb.png": (f"{MV}/threshold_analysis.png", (0.0, 0.09, 0.505, 1.0)),
 }
 
 MAP_HTML = RESULTS / "maps/entrance_exit_no_merge.html"
@@ -83,6 +93,13 @@ def compose(layout, paths, out):
     canvas.save(out)
 
 
+def crop(path, box, out):
+    img = Image.open(path).convert("RGB")
+    left, top, right, bottom = box
+    img.crop((round(left * img.width), round(top * img.height),
+              round(right * img.width), round(bottom * img.height))).save(out)
+
+
 def screenshot_map(out):
     if not CHROME.exists():
         print(f"  !! Chrome not found, map screenshot skipped ({CHROME})")
@@ -108,6 +125,13 @@ if __name__ == "__main__":
             print(f"  composed  {name:34s} <- {', '.join(Path(s).name for s in srcs)}")
         else:
             missing += [s for s, p in zip(srcs, paths) if not p.exists()]
+    for name, (src, box) in CROPS.items():
+        p = RESULTS / src
+        if p.exists():
+            crop(p, box, FIG_DIR / name)
+            print(f"  cropped   {name:34s} <- {src}")
+        else:
+            missing.append(src)
     if MAP_HTML.exists():
         screenshot_map(FIG_DIR / MAP_PNG)
         print(f"  captured  {MAP_PNG:34s} <- {MAP_HTML.relative_to(RESULTS)}")
