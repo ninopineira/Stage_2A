@@ -269,7 +269,6 @@ dans `.gitignore`.
 | `STATS_get_start_sequece.py` | Proportion des antennes qui servent d'**entrée** ou de **sortie** de la zone d'étude. |
 | `sample_for_training.py` | Construit `Database/sample_for_training` : les N utilisateurs de **plus forte entropie** par jour (10–200 records, sans trou > 4 h). ⚠️ Population volontairement difficile, voir §8. |
 | `find_cell.py` | Liste les stations de base disposant à la fois de cellules 2G et 3G. |
-| `test_home_act_cell_dataset.py` | Compte les lignes où BS1/BS2 sont présents, égaux ou absents. |
 | `Exemples.py` | Figures d'illustration pour un utilisateur : profil horaire des connexions, profil 10 min empilé par cellule. |
 
 ### 6.2 `Machin_learning/` — entropies, transitions, baseline Markov
@@ -281,7 +280,6 @@ Le cœur de la mesure de **prévisibilité**. Sorties dans `results/numpy/`. Ord
 |---|---|
 | `transition_matrix.py` | Matrice de transition cellule A → cellule B sur les 15 jours, pour les 3 modes de fusion → `transition_matrix_{merge}.npy` et sa version normalisée. |
 | `transition_emtropy.py` | Entropie **S_unc** par utilisateur → `user_entropies_{merge}.npy`, un tuple `(day, entropy, rel_entropy, n_records, n_states)` par utilisateur. |
-| `transition_entropy_by_period.py` | Même chose découpée en **Matin / Jour / Soir**, 9 combinaisons de bornes (matin finissant à 4/5/6 h, soir démarrant à 18/19/20 h) → 55 valeurs par utilisateur. ⚠️ Découpe par indices (le 1ᵉʳ enregistrement tombe dans « Matin » même s'il est plus tard) et `rel` = S/N : **remplacé pour le rapport par `song_replication.py`**. |
 | **`song_replication.py`** | **Réplication de Song et al.** : journée entière + 3 périodes (chaque enregistrement dans la période de son horodatage), utilisateurs d'entropie non nulle, N = états distincts, S_rel = S/log₂N → `results/plots/song_replication_no_merge.png`, `entropy_by_period_no_merge.png`, `results/intermediate_result/song_replication_*.csv(.gz)`. |
 | **`maximal_previsibility.py`** | **P^max** par l'inégalité de Fano (`compute_pmax`, `load_pmax_dataframe`). Importé par la plupart des scripts de prédiction. Deux bugs importants y ont été corrigés (§9). |
 | `markov_baseline.py` | Markov personnel d'ordre 1, split **aléatoire 70/30** des transitions → `markov_accuracy_no_merge.npy`. Répond à *« est-ce que je capture mon P^max sur un échantillon quelconque de mes trajets ? »*. |
@@ -312,9 +310,9 @@ Ces scripts ne relisent (presque) jamais le dataset brut (seule exception :
 `plot_sum_by_day_user_presence.py`) : ils travaillent sur les CSV et NPY déjà produits, ce qui
 les rend rapides à itérer.
 
-- Histogrammes d'entropie (`plot_hist_entropy.py`, `plot_hist_entropy_by_period.py`), entropies
-  par période et par nombre de records. ⚠️ `plot_hist_entropy.py` date d'avant la correction du N
-  de Fano : pour S_rand / P^max, utiliser `Machin_learning/song_replication.py`.
+- Entropie en fonction du nombre de records (`plot_entropies_by_number_of_records.py`). Les
+  histogrammes d'entropie et de P^max sont tracés par `Machin_learning/song_replication.py`
+  (les anciens `plot_hist_entropy*.py` ont été retirés).
 - Occupation horaire agrégée (`plot_sum_by_day_cell_connections.py`,
   `plot_sum_by_day_user_presence.py`), dashboard HTML Chart.js de l'usage des cellules
   (`plot_html_cell_use_by_hour.py`).
@@ -337,9 +335,7 @@ Pipeline numéroté, pont entre l'analyse et la modélisation.
 |---|---|
 | `0_make_full_dataset_from_class_or_weekend.py` | Reconstruit **un seul fichier** à partir des 15 jours, en filtrant sur une classe d'utilisateurs et/ou en séparant semaine / week-end. |
 | **`1_train_test_split.py`** | Split **80 % train / 20 % test** (mélange aléatoire, `SEED = 67`) → `results/predictions/train_test/{train,test}_random.csv`. Contient aussi, en commentaire, les variantes de split (fusionné 2G/3G, classe 1 uniquement, avec validation). |
-| `2a_create_full_ngrams_matrix.py` | **V1** — n-grammes calculés sur **tout** le dataset. |
 | **`2b_create_train_ngrams_matrix.py`** | **V2** — n-grammes calculés **uniquement sur le split train**. C'est la version correcte, sans fuite de données. |
-| `2c_create_train_ngrams_matrix_by_class.py` | Idem, mais **une matrice par classe** d'utilisateur. |
 | `3_deduplicate_csv.py` | Supprime les **répétitions consécutives de cellule** : prédire `A → A` n'a pas d'intérêt pour la prédiction de destination et les répétitions faussent les métriques. |
 | `4_create_train_ngrams_with_time.py` | **V3** — ajoute une matrice des **délais** de transition. ⚠️ ~1 h de calcul et beaucoup de RAM. |
 | `5_correlation_time.py` | Corrélation entre le délai moyen du contexte et le délai vers la cellule suivante. **Conclusion négative assumée : aucune corrélation exploitable.** Conservé pour ne pas refaire l'essai. |
@@ -389,9 +385,7 @@ Le dossier le plus dense. Trois sous-chantiers partagent `models.py` et `utils.p
   comparables.
 - `DISCOUNT_study_no_duplicate.py` — sensibilité du VOMM au discount d ∈ [0,1 ; 0,95]
   (5 000 utilisateurs, `no_duplicate`) : accuracy presque plate, log-loss minimale à **d = 0,9**.
-- `PLOT_VOMM_metrics_by_discount.py` — métriques en fonction du paramètre `discount`.
 - `VOMM_single_prediction.py` — prédiction sur une séquence unique, pour inspecter le modèle.
-- `user_mapping.py` — index `user_id → (jour, ligne)`.
 - `train_time_weight.py` — apprentissage par descente de gradient d'une matrice de poids
   `θ[heure, cellule]` (24 × 369). **N'a pas donné de résultat exploitable.**
 
@@ -420,10 +414,8 @@ ne capturer que les vrais déplacements.
 | Fichier | Rôle |
 |---|---|
 | `MOVEMENT_PREDICTION_analyze_user_movements.py` | Étude préalable : distribution de l'heure du **premier** et du **dernier** déplacement de la journée, par jour, week-ends en rouge. |
-| `MOVEMENT_PREDICTION_extract_features.py` / `…_V2.py` | Extraction des descripteurs + label. La V1 génère **tous** les points de chaque utilisateur, la V2 tire **un seul** point aléatoire par utilisateur. ⚠️ 20–40 min de calcul. |
+| `MOVEMENT_PREDICTION_extract_features.py` / `…_V2.py` | Extraction des descripteurs + label. La V1 génère **tous** les points de chaque utilisateur (jeu de descripteurs antérieur, conservée pour référence), la V2 — celle du rapport — tire **un seul** point aléatoire par utilisateur. ⚠️ 20–40 min de calcul. |
 | `MOVEMENT_PREDICTION_fit_features.py` / `…_V2.py` | **XGBoost** et **RandomForest** (déséquilibre géré par `scale_pos_weight`, early stopping) ; sorties : modèles `.joblib`, métriques JSON, ROC/PR, importances, calibration, métriques vs seuil. |
-| `MOVEMENT_PREDICTION_train_lstm.py` | Alternative séquentielle : la **séquence** des vecteurs de descripteurs donnée à un **LSTM bidirectionnel** (le signal serait dans la *dérivée* des descripteurs), avec un MLP résiduel et XGBoost en comparaison. |
-| `MOVEMENT_PREDICTION_analyze_features_usage.py` | Analyse **SHAP** : importance globale, beeswarm, dependence plots, et surtout **quels descripteurs trompent le modèle sur les faux positifs / faux négatifs**. |
 | `MOVEMENT_PREDICTION_mobility_explorer.py` | Outil interactif : saisir un `user_id` et tracer (Plotly) sa distance à la première cellule de la journée au fil du temps. |
 
 Les **descripteurs** tournent autour de la notion de **cellule d'ancrage** (*anchor cell*, la
@@ -456,6 +448,18 @@ Convention d'indices : **0 = PAD**, **1…N = cellules**, **N+1 = EOS** (`vocab_
 
 ---
 
+> **Scripts retirés le 11/10/2026** (toujours dans l'historique git, commit `5eaf746` et antérieurs) :
+> *remplacés* — `Machin_learning/transition_entropy_by_period.py`, `plot_hist_entropy.py`,
+> `plot_hist_entropy_by_period.py`, `plot_entropies_by_period.py` (→ `song_replication.py`),
+> `PLOT_VOMM_metrics_by_discount.py` (→ `DISCOUNT_study_no_duplicate.py`),
+> `2a_create_full_ngrams_matrix.py` (→ `2b`), `test_home_act_cell_dataset.py`
+> (→ `STATS_dataset_volume.py`) ; *inexécutables ou sans usage* (hérités du dépôt d'origine) —
+> `MOVEMENT_PREDICTION_train_lstm.py` (lisait des descripteurs « V4 » qu'aucun script ne produit),
+> `MOVEMENT_PREDICTION_analyze_features_usage.py` (SHAP, écrit pour un jeu de descripteurs disparu),
+> `2c_create_train_ngrams_matrix_by_class.py` (lisait un `cell_classification.csv` que rien ne
+> produit), `user_mapping.py` (index lu par aucun script). L'inventaire complet des scripts
+> restants, avec l'utilité de chacun, est l'annexe C du rapport anglais.
+
 ## 7. Enchaînement des traitements
 
 ### Pipeline 1 — Analyse et classification
@@ -478,9 +482,8 @@ Database/no_duplicate/
 Database/no_duplicate/
     ├─► Machin_learning/transition_matrix.py      ──► results/numpy/transition_matrix_*.npy
     │       └─► transition_emtropy.py             ──► user_entropies_{merge}.npy
-    │               ├─► transition_entropy_by_period.py
     │               ├─► maximal_previsibility.py  (P^max, importé partout ailleurs)
-    │               └─► plot_from_csv/plot_hist_entropy*.py, plot_entropies_by_*.py
+    │               └─► plot_from_csv/plot_entropies_by_number_of_records.py
     └─► Machin_learning/song_replication.py       ──► réplication de Song (journée + 3 périodes)
 ```
 
@@ -501,7 +504,6 @@ Database/no_duplicate/
             ├─► 3_deduplicate_csv.py       ──► removed_repeat/*.csv   (requis par les pipelines VOMM)
             └─► 2b_create_train_ngrams_matrix.py ──► ngrams_matrix_train_random.json
                     ├─► VOMM_prediction_pipeline.py / NAIVE_prediction_pipeline.py ──► metrics/*.json
-                    │       └─► PLOT_VOMM_metrics_by_discount.py
                     ├─► COMPARE_markov_vs_vomm.py
                     ├─► DISCOUNT_study_no_duplicate.py
                     └─► PREDICTABILITY_vs_accuracy.py / _by_order_calendar.py
@@ -513,9 +515,7 @@ Database/no_duplicate/
 ```
 Database/no_duplicate_merge_2g3g/  (cellules fusionnées)
     └─► MOVEMENT_PREDICTION_extract_features[_V2].py ──► CSV de descripteurs
-            ├─► MOVEMENT_PREDICTION_fit_features[_V2].py ──► XGBoost / RandomForest + figures
-            │       └─► MOVEMENT_PREDICTION_analyze_features_usage.py  (SHAP)
-            └─► MOVEMENT_PREDICTION_train_lstm.py
+            └─► MOVEMENT_PREDICTION_fit_features[_V2].py ──► XGBoost / RandomForest + figures
 ```
 
 ### Pipeline 6 — Deep learning

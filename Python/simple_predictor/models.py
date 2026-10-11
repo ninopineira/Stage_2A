@@ -1030,8 +1030,8 @@ class MovementPredictor:
     # de extract_features et qui ne sont plus produites : elle levait un TypeError dès
     # l'appel (elle passait 4 arguments à extract_features qui n'en prend que 2).
     # Elle a été supprimée : la décision move/stay est apprise par XGBoost /
-    # RandomForest / LSTM dans les scripts MOVEMENT_PREDICTION_fit_features*.py et
-    # MOVEMENT_PREDICTION_train_lstm.py, à partir du vecteur rendu par extract_features.
+    # RandomForest dans les scripts MOVEMENT_PREDICTION_fit_features*.py, à partir du
+    # vecteur rendu par extract_features.
 
 
 class MovementPredictorV2:

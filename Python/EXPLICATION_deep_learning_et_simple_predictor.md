@@ -3,6 +3,13 @@
 Ce document décrit le contenu des deux dossiers ajoutés, fichier par fichier, puis
 propose des pistes pour la suite.
 
+> **Mise à jour du 11/10/2026.** Quatre scripts décrits plus bas ont été retirés du dépôt (ils
+> restent dans l'historique git) : `user_mapping.py`, `PLOT_VOMM_metrics_by_discount.py`,
+> `MOVEMENT_PREDICTION_train_lstm.py` et
+> `MOVEMENT_PREDICTION_analyze_features_usage.py`. Les deux derniers ne pouvaient plus être
+> exécutés : ils lisaient des fichiers de descripteurs qu'aucun script ne produit. Leurs
+> descriptions sont conservées ci-dessous comme trace de ce qui avait été tenté.
+
 Les deux dossiers attaquent le **même objectif que le travail Markov** de
 `Machin_learning/` (prédire la prochaine station), mais avec des modèles beaucoup
 plus aboutis, et sur les variantes du dataset : `Database/no_duplicate`,

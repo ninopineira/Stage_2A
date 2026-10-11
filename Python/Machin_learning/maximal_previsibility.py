@@ -44,8 +44,8 @@ def load_user_entropies(exclude_zero_entropy=True):
 
     Users with zero entropy are dropped by default: they never left a single
     cell, so they are trivially predictable and Fano hands them Pmax = 1 by
-    convention. Same convention as plot_hist_entropy.py, which already filters
-    on S_unc != 0.
+    convention. Same convention as song_replication.py, which also keeps only
+    the user-days with S_unc != 0.
 
     Split out from load_pmax_dataframe() so that callers who only need the
     user filter (e.g. comparing prediction methods) do not pay for ~1.4M

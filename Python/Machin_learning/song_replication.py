@@ -14,8 +14,9 @@
 # single state; Fano hands them Pmax = 1 by convention). Same rule for every period.
 #
 # Periods: each record goes to the period of its own timestamp — Morning [00h, 06h),
-# Day [06h, 19h), Evening [19h, 24h]. (transition_entropy_by_period.py split on
-# indices and put a user's first record in "Morning" even when it was recorded later.)
+# Day [06h, 19h), Evening [19h, 24h]. (The former transition_entropy_by_period.py, removed
+# since, split on indices and put a user's first record in "Morning" even when it was
+# recorded later.)
 #
 # Outputs:
 #   results/plots/song_replication_no_merge.png        (whole day, 3 panels)

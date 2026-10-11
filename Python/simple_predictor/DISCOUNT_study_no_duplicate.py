@@ -4,7 +4,8 @@
 # with seed 67, users with at least 10 prediction points, 5-cell window).
 #
 # Replaces, for the report, the older study made with VOMM_V5 (temporal boosts) on the
-# deduplicated test (VOMM_prediction_pipeline.py + PLOT_VOMM_metrics_by_discount.py).
+# deduplicated test (VOMM_prediction_pipeline.py + the former PLOT_VOMM_metrics_by_discount.py,
+# removed since).
 #
 # The model is loaded once; only `discount` changes between runs (it enters the
 # probabilities only), and the prediction cache is cleared each time.
